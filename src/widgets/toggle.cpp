@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "mayonnaise/widgets/toggle.hpp"
 
 #include <cmath>
@@ -16,7 +17,7 @@ constexpr float kLabelGap = 8;
 // --- BooleanControlView ----------------------------------------------------------------------
 
 BooleanControlView::BooleanControlView(std::string label, bool on)
-    : m_label(std::move(label)), m_on(on), m_progress(on ? 1.0f : 0.0f) {}
+    : m_label(uiText(label)), m_on(on), m_progress(on ? 1.0f : 0.0f) {}
 
 void BooleanControlView::setOn(bool on, bool animated) {
     if (on == m_on) return;
@@ -29,7 +30,7 @@ void BooleanControlView::setOn(bool on, bool animated) {
 }
 
 void BooleanControlView::setLabel(std::string label) {
-    m_label = std::move(label);
+    m_label = uiText(label);
     invalidateLayout();
 }
 

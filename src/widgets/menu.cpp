@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "mayonnaise/widgets/menu.hpp"
 
 #include <cmath>
@@ -5,14 +6,18 @@
 #include "../render/font.hpp"
 #include "mayonnaise/app.hpp"
 #include "mayonnaise/painter.hpp"
+#include "mayonnaise/widgets/image.hpp"
 
 namespace mayo {
 
 namespace {
+
 constexpr float kPanelPad = 5;
 constexpr float kSeparatorH = 11;
 constexpr float kTextPad = 10;
 constexpr float kColumn = 18;
+constexpr float kDetailGap = 8;  // space between a title and its detail ("推荐")
+constexpr float kSubmenuWidth = 13;  // room for the submenu chevron
 
 /// Shared bezel for pop-up / pull-down buttons (matches ButtonStyle::Default).
 void drawBezel(Painter& p, const Rect& r, float hover, float press) {
@@ -41,7 +46,33 @@ void MenuView::setItems(std::vector<MenuItem> items) {
 void MenuView::setHighlighted(int index) {
     if (index == m_highlighted) return;
     m_highlighted = index;
+    // Hovering a row with a submenu opens it beside the row; anything else closes the open one.
+    if (index >= 0 && index < static_cast<int>(m_items.size()) && m_items[static_cast<size_t>(index)].hasSubmenu()) {
+        showSubmenu(index);
+    } else {
+        closeSubmenu();
+    }
     invalidate();
+}
+
+void MenuView::closeSubmenu() {
+    if (m_submenu) m_submenu->dismiss();
+}
+
+void MenuView::showSubmenu(int index) {
+    if (!host()) return;
+    if (m_submenu && m_submenuIndex == index && m_submenu->isShown()) return;
+    if (m_submenu) m_submenu->dismiss();
+    m_submenuIndex = index;
+    m_submenu = std::make_shared<MenuView>(m_items[static_cast<size_t>(index)].subitems);
+    m_submenu->setGap(0);
+    m_submenu->setOnDismiss([this] { invalidate(); });
+    // Hung from the row itself (not the whole parent menu) and overlapping it by the panel padding, as
+    // macOS's submenus do.
+    m_submenu->setAnchorRect(rowRect(index));
+    m_submenu->showFrom(*this);
+    // Keyboard focus stays with the parent menu so Up/Down keep moving there; Escape closes both.
+    host()->setFocus(this, false);
 }
 
 Size MenuView::measureContent(Size /*available*/) {
@@ -52,6 +83,7 @@ Size MenuView::measureContent(Size /*available*/) {
     bool anyIcon = false;
     float textW = 0;
     float shortcutW = 0;
+    float detailW = 0;
     float h = kPanelPad * 2;
     for (const auto& item : m_items) {
         if (item.isSeparator) {
@@ -60,12 +92,15 @@ Size MenuView::measureContent(Size /*available*/) {
         }
         h += t.metrics.menuItemHeight;
         anyCheck |= item.checked;
-        anyIcon |= item.icon != Icon::None;
-        textW = std::max(textW, render::measureText(item.title, f));
+        anyIcon |= item.icon != Icon::None || item.image != nullptr;
+        float titleW = render::measureText(item.title, f);
+        if (item.hasSubmenu()) titleW += kSubmenuWidth;
+        textW = std::max(textW, titleW);
+        if (!item.detail.empty()) detailW = std::max(detailW, titleW + kDetailGap + render::measureText(item.detail, sf));
         if (!item.shortcut.empty()) shortcutW = std::max(shortcutW, render::measureText(item.shortcut, sf));
     }
-    float w = kPanelPad * 2 + kTextPad * 2 + textW + (anyCheck ? kColumn : 0.0f) + (anyIcon ? kColumn + 4 : 0.0f) +
-              (shortcutW > 0 ? shortcutW + 28 : 0.0f);
+    float w = kPanelPad * 2 + kTextPad * 2 + std::max(textW, detailW) + (anyCheck ? kColumn : 0.0f) +
+              (anyIcon ? kColumn + 4 : 0.0f) + (shortcutW > 0 ? shortcutW + 28 : 0.0f);
     return {std::max(std::ceil(w), 140.0f), h};
 }
 
@@ -107,6 +142,12 @@ void MenuView::onPointerLeave() { setHighlighted(-1); }
 
 void MenuView::activate(int index) {
     if (index < 0 || index >= static_cast<int>(m_items.size())) return;
+    if (m_items[static_cast<size_t>(index)].hasSubmenu()) {
+        showSubmenu(index);
+        return;
+    }
+    // A submenu choice closes this menu too.
+    if (m_submenu) m_submenu->dismiss();
     auto action = m_items[static_cast<size_t>(index)].action;
     auto keep = shared_from_this();  // the action may drop the last outside reference
     // Brief flash like macOS, then close and run the action.
@@ -137,7 +178,13 @@ bool MenuView::onKeyDown(const KeyEvent& e) {
         case Key::Space:
             if (m_highlighted >= 0) activate(m_highlighted);
             return true;
-        case Key::Escape: dismiss(); return true;
+        case Key::Right:
+            if (m_highlighted >= 0) showSubmenu(m_highlighted);
+            return true;
+        case Key::Escape:
+            if (m_submenu) m_submenu->dismiss();
+            dismiss();
+            return true;
         default: return false;
     }
 }
@@ -146,11 +193,12 @@ void MenuView::drawPanel(Painter& p) {
     const Theme& t = theme();
     const auto& c = t.colors;
     const Font f = t.font(TextStyle::Body);
+    const Font sf = t.font(TextStyle::Subheadline);
     bool anyCheck = false;
     bool anyIcon = false;
     for (const auto& item : m_items) {
         anyCheck |= item.checked;
-        anyIcon |= item.icon != Icon::None;
+        anyIcon |= item.icon != Icon::None || item.image != nullptr;
     }
     for (int i = 0; i < static_cast<int>(m_items.size()); ++i) {
         const auto& item = m_items[static_cast<size_t>(i)];
@@ -169,10 +217,26 @@ void MenuView::drawPanel(Painter& p) {
             x += kColumn;
         }
         if (anyIcon) {
-            if (item.icon != Icon::None) p.drawIcon(item.icon, {x, row.center().y - 7, 14, 14}, text);
+            if (item.image && item.image->width() > 0) {
+                p.drawImage({x, row.center().y - 8, 16, 16}, *item.image);
+            } else if (item.icon != Icon::None) {
+                p.drawIcon(item.icon, {x, row.center().y - 7, 14, 14}, text);
+            }
             x += kColumn + 4;
         }
-        p.drawText(item.title, {x, row.y, row.right() - x, row.height}, f, text);
+        if (item.hasSubmenu()) {
+            p.drawText(item.title, {x, row.y, row.right() - x - kSubmenuWidth, row.height}, f, text);
+            p.drawIcon(Icon::ChevronRight, {row.right() - kTextPad - 4, row.center().y - 4.5f, 9, 9},
+                       item.enabled ? (hi ? c.onAccent : c.secondaryLabel) : c.tertiaryLabel, 1.3f);
+        } else {
+            p.drawText(item.title, {x, row.y, row.right() - x, row.height}, f, text);
+        }
+        if (!item.detail.empty()) {
+            // The detail follows the title on its baseline instead of going to the far right.
+            const float titleW = render::measureText(item.title, f);
+            Color dc = hi ? c.onAccent.withAlpha(0.75f) : c.tertiaryLabel;
+            p.drawText(item.detail, {x + titleW + kDetailGap, row.y, row.right() - x, row.height}, sf, dc);
+        }
         if (!item.shortcut.empty()) {
             Color sc = hi ? c.onAccent.withAlpha(0.8f) : c.tertiaryLabel;
             p.drawText(item.shortcut, {row.x, row.y, row.width - kTextPad, row.height}, f, sc, TextAlign::Trailing);
@@ -183,7 +247,7 @@ void MenuView::drawPanel(Painter& p) {
 // --- MenuButtonView ----------------------------------------------------------------------------
 
 MenuButtonView::MenuButtonView(std::string title, std::vector<MenuItem> items)
-    : m_title(std::move(title)), m_items(std::move(items)) {}
+    : m_title(uiText(title)), m_items(std::move(items)) {}
 
 void MenuButtonView::setBorderless(bool b) {
     m_borderless = b;
@@ -254,7 +318,9 @@ bool MenuButtonView::onKeyDown(const KeyEvent& e) {
 // --- PickerView ------------------------------------------------------------------------------
 
 PickerView::PickerView(std::vector<std::string> options, int selected)
-    : m_options(std::move(options)), m_selected(selected) {}
+    : m_options(std::move(options)), m_selected(selected) {
+    for (auto& option : m_options) option = uiText(option);
+}
 
 void PickerView::setSelected(int index, bool notify) {
     if (m_options.empty()) return;
@@ -267,6 +333,7 @@ void PickerView::setSelected(int index, bool notify) {
 
 void PickerView::setOptions(std::vector<std::string> options) {
     m_options = std::move(options);
+    for (auto& option : m_options) option = uiText(option);
     m_selected = std::clamp(m_selected, 0, std::max(0, static_cast<int>(m_options.size()) - 1));
     invalidateLayout();
 }

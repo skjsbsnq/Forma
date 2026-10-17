@@ -3,3 +3,11 @@
 compile_commands.json
 *.png.tmp
 /build*.log
+/packaging/*/src/
+/packaging/*/pkg/
+/packaging/*/*.pkg.tar.*
+*.log
+.env
+.env.*
+__pycache__/
+*.pyc

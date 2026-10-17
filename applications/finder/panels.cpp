@@ -168,7 +168,7 @@ void QuickLookView::drawPanel(Painter& p) {
     const Rect r = frame();
     const float px = 1.0f / p.scale();
 
-    // Header: close button, title, "Open" button.
+    // Header: close button, title, "打开" button.
     const Rect close = closeRect();
     p.fillCircle(close.center(), 7, m_hover == 0 ? c.red : c.fill);
     p.drawIcon(Icon::Xmark, close.inset(3.5f), m_hover == 0 ? Color::black(0.6f) : c.secondaryLabel, 1.4f);
@@ -178,7 +178,7 @@ void QuickLookView::drawPanel(Painter& p) {
     const Rect open = openRect();
     if (m_hover == 1) p.fillRoundedRect(open, open.height * 0.5f, c.hover);
     p.drawIcon(Icon::ArrowUpRight, {open.x + 10, open.center().y - 7, 14, 14}, c.label);
-    p.drawText("Open", {open.x + 30, open.y, open.width - 30, open.height}, t.font(TextStyle::Body), c.label);
+    p.drawText("打开", {open.x + 30, open.y, open.width - 30, open.height}, t.font(TextStyle::Body), c.label);
     p.fillRect({r.x, p.snap(r.y + kHeader) - px, r.width, px}, c.separator);
 
     const Rect b = body();
@@ -223,7 +223,7 @@ void QuickLookView::drawPanel(Painter& p) {
         std::string line = kindDescription(m_entry) + " – " + (m_entry.isDir ? itemCount(m_childCount) : formatSize(m_entry.size));
         p.drawText(line, {b.x, y, b.width, 18}, small, c.secondaryLabel, TextAlign::Center);
         y += 20;
-        p.drawText("Modified " + formatDate(m_entry.modified), {b.x, y, b.width, 18}, small, c.secondaryLabel,
+        p.drawText("修改时间：" + formatDate(m_entry.modified), {b.x, y, b.width, 18}, small, c.secondaryLabel,
                    TextAlign::Center);
     }
     p.popClip();

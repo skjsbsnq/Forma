@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #pragma once
 
 #include <functional>
@@ -10,18 +11,23 @@
 
 namespace mayo {
 
+class ImageData;
+
 struct MenuItem {
     std::string title;
     std::function<void()> action;
     Icon icon = Icon::None;
     std::string shortcut;  ///< display only, e.g. "Ctrl+C"
+    std::string detail;    ///< second text column after the title ("推荐"), unlike the shortcut it isn't pushed right
+    std::vector<MenuItem> subitems;  ///< submenu on hover; the item's action is ignored
+    std::shared_ptr<ImageData> image;  ///< drawn like `icon`, 16 pt, when set
     bool enabled = true;
     bool checked = false;
     bool destructive = false;
     bool isSeparator = false;
 
     MenuItem() = default;
-    MenuItem(std::string t, std::function<void()> a = {}) : title(std::move(t)), action(std::move(a)) {}  // NOLINT
+    MenuItem(std::string t, std::function<void()> a = {}) : title(uiText(t)), action(std::move(a)) {}  // NOLINT
     static MenuItem separator() {
         MenuItem m;
         m.isSeparator = true;
@@ -35,6 +41,20 @@ struct MenuItem {
         shortcut = std::move(s);
         return *this;
     }
+    MenuItem& withDetail(std::string d) {
+        detail = std::move(d);
+        return *this;
+    }
+    /// A themed icon image shown before the title (an application's icon, as macOS does in "Open With").
+    MenuItem& withImage(std::shared_ptr<ImageData> i) {
+        image = std::move(i);
+        return *this;
+    }
+    MenuItem& withSubmenu(std::vector<MenuItem> items) {
+        subitems = std::move(items);
+        return *this;
+    }
+    [[nodiscard]] bool hasSubmenu() const { return !subitems.empty(); }
     MenuItem& disabled(bool d = true) {
         enabled = !d;
         return *this;
@@ -74,10 +94,14 @@ private:
     [[nodiscard]] Rect rowRect(int index) const;
     void activate(int index);
     void moveHighlight(int delta);
+    void showSubmenu(int index);
+    void closeSubmenu();
 
     std::vector<MenuItem> m_items;
     int m_highlighted = -1;
     int m_pressed = -1;
+    std::shared_ptr<MenuView> m_submenu;
+    int m_submenuIndex = -1;
 };
 
 /// Pull-down menu button: a button with a chevron that opens a list of actions.

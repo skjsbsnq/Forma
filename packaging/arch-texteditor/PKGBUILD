@@ -1,0 +1,35 @@
+# Build the current local Forma source, including uncommitted changes.
+pkgname=forma-texteditor
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Forma Text Editor with Simplified Chinese interface and Liquid Glass styling'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+depends=(glibc gcc-libs sdl3 freetype2 libglvnd fontconfig dbus hicolor-icon-theme)
+makedepends=(cmake pkgconf vulkan-headers shaderc)
+optdepends=('vulkan-icd-loader: Vulkan rendering'
+            'xdg-desktop-portal: desktop file dialogs'
+            'zenity: fallback file dialogs'
+            'noto-fonts-cjk: Chinese text rendering')
+options=(!debug)
+source=()
+sha256sums=()
+
+build() {
+  local editor_build_dir="${FORMA_TEXTEDITOR_BUILD_DIR:-$srcdir/build}"
+  cmake -S "$startdir/../.." -B "$editor_build_dir" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMAYONNAISE_BUILD_APPS=ON -DMAYONNAISE_USE_SYSTEM_DEPS=ON \
+    -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "$editor_build_dir" --target texteditor -j"${FORMA_BUILD_JOBS:-4}"
+}
+
+package() {
+  local editor_build_dir="${FORMA_TEXTEDITOR_BUILD_DIR:-$srcdir/build}"
+  DESTDIR="$pkgdir" cmake --install "$editor_build_dir" --component texteditor
+  install -Dm644 "$startdir/../../applications/text_editor/data/io.github.egely1337.Mayonnaise.TextEditor.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/forma-texteditor.svg"
+  install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+}

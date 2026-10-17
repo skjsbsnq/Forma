@@ -1,0 +1,44 @@
+# Build the current local Forma source, including uncommitted changes.
+pkgbase=forma-media
+pkgname=(forma-photos forma-video)
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Forma Photos and Video Player with Simplified Chinese interfaces'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+makedepends=(cmake pkgconf sdl3 freetype2 glib2 vulkan-headers shaderc ffmpeg)
+options=(!debug)
+source=()
+sha256sums=()
+
+build() {
+  cmake -S "$startdir/../.." -B "$srcdir/build" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "$srcdir/build" --target photos video_player -j"$(nproc)"
+}
+
+_install_app() {
+  DESTDIR="$pkgdir" cmake --install "$srcdir/build" --component "$1"
+  install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+}
+
+package_forma-photos() {
+  pkgdesc='Forma Photos image viewer with Simplified Chinese interface'
+  depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme)
+  optdepends=('vulkan-icd-loader: Vulkan rendering' 'zenity: fallback file dialogs')
+  provides=(mayo-photos-git)
+  conflicts=(mayo-photos-git)
+  _install_app photos
+}
+
+package_forma-video() {
+  pkgdesc='Forma Video Player with Simplified Chinese interface'
+  depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme ffmpeg)
+  optdepends=('vulkan-icd-loader: Vulkan rendering' 'zenity: fallback file dialogs')
+  provides=(mayo-video-player-git)
+  conflicts=(mayo-video-player-git)
+  _install_app video_player
+}

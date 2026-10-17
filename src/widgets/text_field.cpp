@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "mayonnaise/widgets/text_field.hpp"
 
 #include <cmath>
@@ -20,7 +21,7 @@ constexpr float kClearButton = 22;
 Font fieldFont() { return theme().font(TextStyle::Body); }
 }  // namespace
 
-TextFieldView::TextFieldView(std::string placeholder) : m_placeholder(std::move(placeholder)) {
+TextFieldView::TextFieldView(std::string placeholder) : m_placeholder(uiText(placeholder)) {
     setCursor(CursorShape::IBeam);
 }
 
@@ -33,7 +34,7 @@ void TextFieldView::setText(std::string text) {
 }
 
 void TextFieldView::setPlaceholder(std::string p) {
-    m_placeholder = std::move(p);
+    m_placeholder = uiText(p);
     invalidate();
 }
 

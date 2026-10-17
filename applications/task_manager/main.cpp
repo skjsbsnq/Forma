@@ -1,3 +1,4 @@
+#include "../common/zh_cn.hpp"
 // Task Manager — an Activity Monitor-style system monitor for Linux built on Mayonnaise.
 //
 // CPU / Memory / Disk / Network tabs with live history graphs, a sortable process table (click headers,
@@ -183,7 +184,7 @@ std::vector<Column> columnsFor(Tab tab, const std::uint64_t& memTotal) {
                     Column{"CPU Time", 100, true, [](const ProcessInfo& p) { return formatDuration(p.cpuSeconds); },
                            [](const ProcessInfo& p) { return p.cpuSeconds; }},
                     threads,
-                    Column{"State", 90, false, [](const ProcessInfo& p) { return std::string(stateName(p.state)); }, {}},
+                    Column{"State", 90, false, [](const ProcessInfo& p) { return mayo::uiText(stateName(p.state)); }, {}},
                     pid, user};
         case kMemory:
             return {name,
@@ -224,6 +225,7 @@ std::vector<Column> columnsFor(Tab tab, const std::uint64_t& memTotal) {
 }  // namespace
 
 int main() {
+    mayo::setUiTranslator(forma::zhCN);
     App app("task_manager", MAYO_DESKTOP_ID);
     auto& window = app.createWindow(
         {.title = "Task Manager", .width = 1180, .height = 780, .minWidth = 820, .minHeight = 560, .autosaveName = "main"});
@@ -388,8 +390,8 @@ int main() {
         memUsed.set(formatBytes(static_cast<double>(s.memUsed)));
         memCached.set(formatBytes(static_cast<double>(s.memCached)));
         memFree.set(formatBytes(static_cast<double>(s.memAvailable)));
-        swapUsed.set(formatBytes(static_cast<double>(s.swapUsed)) + " of " + formatBytes(static_cast<double>(s.swapTotal), 0));
-        std::snprintf(buf, sizeof buf, "%.0f in · %.0f out /s", s.swapInRate, s.swapOutRate);
+        swapUsed.set(formatBytes(static_cast<double>(s.swapUsed)) + " / " + formatBytes(static_cast<double>(s.swapTotal), 0));
+        std::snprintf(buf, sizeof buf, "每秒换入 %.0f · 换出 %.0f", s.swapInRate, s.swapOutRate);
         swapActivity.set(buf);
         memBar->setSegments({{static_cast<double>(s.memUsed) / total, colors().blue},
                              {static_cast<double>(s.memCached) / total, colors().purple}});
@@ -422,11 +424,11 @@ int main() {
             bar->setSegments({{used, used > 0.9 ? colors().red : colors().accent}});
             volumes.add(VStack({HStack({Label(fs.mountPoint).font(TextStyle::Callout).weight(FontWeight::Medium),
                                         Label(fs.type).font(TextStyle::Caption).tertiary(), Spacer(),
-                                        Label(formatBytes(static_cast<double>(fs.available)) + " free").font(TextStyle::Caption).secondary()})
+                                        Label(formatBytes(static_cast<double>(fs.available)) + " 可用").font(TextStyle::Caption).secondary()})
                                     .spacing(6)
                                     .align(Alignment::Center),
                                 Element(bar),
-                                Label(formatBytes(static_cast<double>(fs.total - fs.available)) + " used of " +
+                                Label(formatBytes(static_cast<double>(fs.total - fs.available)) + " 已用 / " +
                                       formatBytes(static_cast<double>(fs.total)) + " · " + fs.device)
                                     .font(TextStyle::Caption)
                                     .tertiary()
@@ -506,7 +508,7 @@ int main() {
             }
         }
         if (!p) {
-            inspName.setText(inspName.text().find("(exited)") == std::string::npos ? inspName.text() + " (exited)" : inspName.text());
+            inspName.setText(inspName.text().find("（已退出）") == std::string::npos ? inspName.text() + "（已退出）" : inspName.text());
             return;
         }
         char buf[64];
@@ -565,7 +567,7 @@ int main() {
         }
         if (!p) return;
         quitting = pid;
-        quitQuestion.setText("Are you sure you want to " + std::string(force ? "force quit" : "quit") + " “" + p->name + "”?");
+        quitQuestion.setText("确定要" + std::string(force ? "强制结束" : "结束") + "进程“" + p->name + "”吗？");
         quitError.setHidden(true);
         quitPopover.show(stopButton);
     };
@@ -576,7 +578,7 @@ int main() {
             return;
         }
         quitError.setText(errno == EPERM ? "You don't have permission to quit this process. It belongs to another user."
-                                         : std::string("Couldn't send the signal: ") + std::strerror(errno));
+                                         : std::string("无法发送信号：") + std::strerror(errno));
         quitError.setHidden(false);
     };
     quitCancel.onClick([&] { quitPopover.dismiss(); });

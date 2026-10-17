@@ -1,10 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Mayo Terminal
+Name=Forma Terminal
+Name[zh_CN]=Forma 终端
 GenericName=Terminal
 Comment=Use the command line
-Exec=terminal
-Icon=io.github.egely1337.Mayonnaise.Terminal
+Exec=forma-terminal
+Icon=forma-terminal
 Terminal=false
 StartupNotify=true
 Categories=System;TerminalEmulator;

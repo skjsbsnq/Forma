@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Forma 邮件
+Name[zh_CN]=Forma 邮件
+Comment=本地邮件体验与草稿
+Exec=forma-mail
+Icon=io.github.skjsbsnq.Forma.Mail
+Terminal=false
+Categories=Office;Email;
+StartupWMClass=io.github.skjsbsnq.Forma.Mail

@@ -1,3 +1,4 @@
+#include "../common/zh_cn.hpp"
 // Terminal — a terminal emulator in the style of macOS Terminal, built on Mayonnaise.
 //
 //   terminal [directory]
@@ -216,6 +217,7 @@ std::string tildePath(const std::string& path) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    mayo::setUiTranslator(forma::zhCN);
     App app("terminal", MAYO_DESKTOP_ID);
     auto& window = app.createWindow(
         {.title = "Terminal", .width = 760, .height = 500, .minWidth = 320, .minHeight = 180, .autosaveName = "main"});

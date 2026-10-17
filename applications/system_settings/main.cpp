@@ -1,3 +1,4 @@
+#include "../common/zh_cn.hpp"
 // Settings — a System Settings-style control centre for GNOME and KDE Plasma (and other GNU/Linux desktops
 // where the services exist) built on Mayonnaise.
 //
@@ -25,6 +26,7 @@
 using namespace mayo;
 
 int main(int argc, char** argv) {
+    mayo::setUiTranslator(forma::zhCN);
     App app("system-settings", MAYO_DESKTOP_ID);
     auto& prefs = app.settings();
     gx::setReadOnly(std::getenv("MAYO_SCREENSHOT") || std::getenv("SETTINGS_READ_ONLY"));
@@ -61,7 +63,7 @@ int main(int argc, char** argv) {
         const std::string q = ui::lower(query);
         int group = -1;
         for (const auto& p : panels()) {
-            if (!q.empty() && ui::lower(p.title).find(q) == std::string::npos &&
+            if (!q.empty() && ui::lower(mayo::uiText(p.title)).find(q) == std::string::npos &&
                 std::string(p.keywords).find(q) == std::string::npos)
                 continue;
             // Groups are separated by an untitled header (a gap), like System Settings.
@@ -85,7 +87,7 @@ int main(int argc, char** argv) {
         if (it == built.end()) it = built.emplace(id, info->build(ctx)).first;
         split.setDetail(it->second);
         titleLabel.setText(info->title);
-        window.setTitle(std::string(info->title) + " — Settings");
+        window.setTitle(std::string(info->title) + " — Forma 系统设置");
         sidebar.selection(id);
         backButton.setDisabled(back.empty());
         forwardButton.setDisabled(forward.empty());
@@ -119,7 +121,7 @@ int main(int argc, char** argv) {
         // Enter opens the first match.
         const std::string q = ui::lower(query);
         for (const auto& p : panels()) {
-            if (ui::lower(p.title).find(q) != std::string::npos || std::string(p.keywords).find(q) != std::string::npos) {
+            if (ui::lower(mayo::uiText(p.title)).find(q) != std::string::npos || std::string(p.keywords).find(q) != std::string::npos) {
                 show(p.id, true);
                 return;
             }

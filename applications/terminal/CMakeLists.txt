@@ -7,3 +7,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(terminal PRIVATE ${MAYO_UTIL_LIB})
   endif()
 endif()
+
+# Keep Forma alongside the desktop's own terminal and KDE System Settings.
+if(TARGET terminal)
+  set_target_properties(terminal PROPERTIES OUTPUT_NAME forma-terminal)
+endif()

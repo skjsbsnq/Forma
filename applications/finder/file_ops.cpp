@@ -19,7 +19,7 @@ namespace finder {
 namespace {
 
 std::string plural(size_t n, const char* what) {
-    return std::to_string(n) + " " + what + (n == 1 ? "" : "s");
+    return std::to_string(n) + (std::string(what) == "item" ? " 个项目" : " 个其他错误");
 }
 
 std::string quoted(const std::string& name) { return "“" + name + "”"; }
@@ -96,7 +96,7 @@ void FileOps::run(std::string status, std::function<Result()> work, Done done) {
                 if (m_undo.size() > 50) m_undo.erase(m_undo.begin());
                 if (!result.errors.empty() && m_onError) {
                     std::string msg = result.errors.front();
-                    if (result.errors.size() > 1) msg += " (and " + plural(result.errors.size() - 1, "more error") + ")";
+                    if (result.errors.size() > 1) msg += "（另有 " + plural(result.errors.size() - 1, "more error") + "）";
                     m_onError(msg);
                 }
                 if (done) done(result.paths);
@@ -108,10 +108,10 @@ void FileOps::run(std::string status, std::function<Result()> work, Done done) {
 }
 
 void FileOps::copy(std::vector<std::string> sources, std::string folder, Done done) {
-    std::string status = "Copying " + describe(sources) + "…";
+    std::string status = "正在复制" + describe(sources) + "…";
     run(std::move(status), [sources, folder] {
         Result r;
-        Undo undo{Undo::Kind::Copy, {}, {}, {}, "Undo Copy"};
+        Undo undo{Undo::Kind::Copy, {}, {}, {}, "撤销复制"};
         for (const auto& src : sources) {
             const std::string name = fs::path(src).filename().string();
             // Same folder: "photo copy.jpg" (Duplicate); elsewhere a clash keeps both ("photo 2.jpg").
@@ -119,13 +119,13 @@ void FileOps::copy(std::vector<std::string> sources, std::string folder, Done do
                                                                                       : uniqueName(folder, name)))
                                            .string();
             if (isInside(folder, src)) {
-                r.errors.push_back("Can't copy " + quoted(name) + " into itself.");
+                r.errors.push_back("无法将" + quoted(name) + "复制或移动到其自身中。");
                 continue;
             }
             std::error_code ec;
             fs::copy(src, target, fs::copy_options::recursive | fs::copy_options::copy_symlinks, ec);
             if (ec) {
-                r.errors.push_back("Couldn't copy " + quoted(name) + ": " + ec.message() + ".");
+                r.errors.push_back("无法复制" + quoted(name) + ": " + ec.message() + ".");
                 continue;
             }
             r.paths.push_back(target);
@@ -137,21 +137,21 @@ void FileOps::copy(std::vector<std::string> sources, std::string folder, Done do
 }
 
 void FileOps::move(std::vector<std::string> sources, std::string folder, Done done) {
-    std::string status = "Moving " + describe(sources) + "…";
+    std::string status = "正在移动" + describe(sources) + "…";
     run(std::move(status), [sources, folder] {
         Result r;
-        Undo undo{Undo::Kind::Move, {}, {}, {}, "Undo Move"};
+        Undo undo{Undo::Kind::Move, {}, {}, {}, "撤销移动"};
         for (const auto& src : sources) {
             const std::string name = fs::path(src).filename().string();
             if (parentPath(src) == folder) continue;
             if (isInside(folder, src)) {
-                r.errors.push_back("Can't move " + quoted(name) + " into itself.");
+                r.errors.push_back("无法将" + quoted(name) + "复制或移动到其自身中。");
                 continue;
             }
             const std::string target = (fs::path(folder) / uniqueName(folder, name)).string();
             std::string error;
             if (!moveItem(src, target, error)) {
-                r.errors.push_back("Couldn't move " + quoted(name) + ": " + error + ".");
+                r.errors.push_back("无法移动" + quoted(name) + ": " + error + ".");
                 continue;
             }
             r.paths.push_back(target);
@@ -163,17 +163,17 @@ void FileOps::move(std::vector<std::string> sources, std::string folder, Done do
 }
 
 void FileOps::trash(std::vector<std::string> paths, Done done) {
-    std::string status = "Moving " + describe(paths) + " to the Trash…";
+    std::string status = "正在移动" + describe(paths) + "到回收站…";
     run(std::move(status), [paths] {
         Result r;
-        Undo undo{Undo::Kind::Trash, {}, {}, {}, "Undo Move to Trash"};
+        Undo undo{Undo::Kind::Trash, {}, {}, {}, "撤销移到回收站"};
         for (const auto& p : paths) {
             std::string error;
             if (auto item = moveToTrash(p, &error)) {
                 undo.trashed.push_back(*item);
                 r.paths.push_back(item->trashed);
             } else {
-                r.errors.push_back("Couldn't move " + quoted(fs::path(p).filename().string()) + " to the Trash: " + error + ".");
+                r.errors.push_back("无法移动" + quoted(fs::path(p).filename().string()) + "到回收站：" + error + ".");
             }
         }
         if (!undo.trashed.empty()) r.undo = undo;
@@ -182,14 +182,14 @@ void FileOps::trash(std::vector<std::string> paths, Done done) {
 }
 
 void FileOps::putBack(std::vector<std::string> trashedPaths, Done done) {
-    run("Putting back " + describe(trashedPaths) + "…", [trashedPaths] {
+    run("正在还原" + describe(trashedPaths) + "…", [trashedPaths] {
         Result r;
-        Undo undo{Undo::Kind::Move, {}, {}, {}, "Undo Put Back"};
+        Undo undo{Undo::Kind::Move, {}, {}, {}, "撤销还原"};
         for (const auto& p : trashedPaths) {
             auto original = trashOriginalPath(p);
             const std::string name = fs::path(p).filename().string();
             if (!original) {
-                r.errors.push_back("The original location of " + quoted(name) + " is unknown.");
+                r.errors.push_back("无法确定" + quoted(name) + "的原始位置。");
                 continue;
             }
             std::error_code ec;
@@ -198,7 +198,7 @@ void FileOps::putBack(std::vector<std::string> trashedPaths, Done done) {
             const std::string target = (dest.parent_path() / uniqueName(dest.parent_path().string(), dest.filename().string())).string();
             std::string error;
             if (!moveItem(p, target, error)) {
-                r.errors.push_back("Couldn't put back " + quoted(name) + ": " + error + ".");
+                r.errors.push_back("无法还原" + quoted(name) + ": " + error + ".");
                 continue;
             }
             const fs::path info = fs::path(p).parent_path().parent_path() / "info" / (name + ".trashinfo");
@@ -212,20 +212,20 @@ void FileOps::putBack(std::vector<std::string> trashedPaths, Done done) {
 void FileOps::emptyTrash(Done done) {
     m_undo.erase(std::remove_if(m_undo.begin(), m_undo.end(), [](const Undo& u) { return u.kind == Undo::Kind::Trash; }),
                  m_undo.end());
-    run("Emptying the Trash…", [] {
+    run("正在清空回收站…", [] {
         finder::emptyTrash();
         return Result{};
     }, std::move(done));
 }
 
 void FileOps::deleteImmediately(std::vector<std::string> paths, Done done) {
-    run("Deleting " + describe(paths) + "…", [paths] {
+    run("正在删除" + describe(paths) + "…", [paths] {
         Result r;
         for (const auto& p : paths) {
             std::error_code ec;
             fs::remove_all(p, ec);
             if (ec) {
-                r.errors.push_back("Couldn't delete " + quoted(fs::path(p).filename().string()) + ": " + ec.message() + ".");
+                r.errors.push_back("无法删除" + quoted(fs::path(p).filename().string()) + ": " + ec.message() + ".");
                 continue;
             }
             const fs::path info = fs::path(p).parent_path().parent_path() / "info" / (fs::path(p).filename().string() + ".trashinfo");
@@ -237,34 +237,34 @@ void FileOps::deleteImmediately(std::vector<std::string> paths, Done done) {
 
 std::string FileOps::rename(const std::string& path, const std::string& newName) {
     if (newName.find('/') != std::string::npos || newName == "." || newName == "..") {
-        if (m_onError) m_onError("The name " + quoted(newName) + " can't be used. Names can't contain “/”.");
+        if (m_onError) m_onError("名称" + quoted(newName) + "不可用。名称不能包含“/”。");
         return {};
     }
     const fs::path target = fs::path(path).parent_path() / newName;
     std::error_code ec;
     if (fs::exists(target, ec)) {
-        if (m_onError) m_onError("The name " + quoted(newName) + " is already taken. Please choose a different name.");
+        if (m_onError) m_onError("名称" + quoted(newName) + "已被使用，请选择其他名称。");
         return {};
     }
     fs::rename(path, target, ec);
     if (ec) {
-        if (m_onError) m_onError("Couldn't rename " + quoted(fs::path(path).filename().string()) + ": " + ec.message() + ".");
+        if (m_onError) m_onError("无法重命名" + quoted(fs::path(path).filename().string()) + ": " + ec.message() + ".");
         return {};
     }
-    m_undo.push_back({Undo::Kind::Rename, {{path, target.string()}}, {}, {}, "Undo Rename"});
+    m_undo.push_back({Undo::Kind::Rename, {{path, target.string()}}, {}, {}, "撤销重命名"});
     if (onChanged) onChanged();
     return target.string();
 }
 
 std::string FileOps::newFolder(const std::string& folder) {
-    const fs::path target = fs::path(folder) / uniqueName(folder, "untitled folder");
+    const fs::path target = fs::path(folder) / uniqueName(folder, "未命名文件夹");
     std::error_code ec;
     fs::create_directory(target, ec);
     if (ec) {
-        if (m_onError) m_onError("Couldn't create a folder here: " + ec.message() + ".");
+        if (m_onError) m_onError("无法在此处创建文件夹：" + ec.message() + ".");
         return {};
     }
-    m_undo.push_back({Undo::Kind::NewFolder, {}, {}, {target.string()}, "Undo New Folder"});
+    m_undo.push_back({Undo::Kind::NewFolder, {}, {}, {target.string()}, "撤销新建文件夹"});
     if (onChanged) onChanged();
     return target.string();
 }
@@ -288,13 +288,13 @@ void FileOps::folderSize(const std::string& path, std::function<void(std::uintma
     m_cv.notify_one();
 }
 
-std::string FileOps::undoTitle() const { return m_undo.empty() ? "Undo" : m_undo.back().title; }
+std::string FileOps::undoTitle() const { return m_undo.empty() ? "撤销" : m_undo.back().title; }
 
 void FileOps::undo(Done done) {
     if (m_undo.empty()) return;
     Undo u = m_undo.back();
     m_undo.pop_back();
-    run("Undoing…", [u] {
+    run("正在撤销…", [u] {
         Result r;
         std::string error;
         switch (u.kind) {
@@ -302,13 +302,13 @@ void FileOps::undo(Done done) {
             case Undo::Kind::Move:
                 for (const auto& [from, to] : u.moves) {
                     if (moveItem(to, from, error)) r.paths.push_back(from);
-                    else r.errors.push_back("Couldn't undo: " + error + ".");
+                    else r.errors.push_back("无法撤销：" + error + ".");
                 }
                 break;
             case Undo::Kind::Copy:
                 // The Finder undoes a copy by moving the copies to the Trash.
                 for (const auto& p : u.created) {
-                    if (!moveToTrash(p, &error)) r.errors.push_back("Couldn't undo: " + error + ".");
+                    if (!moveToTrash(p, &error)) r.errors.push_back("无法撤销：" + error + ".");
                 }
                 break;
             case Undo::Kind::Trash:
@@ -319,14 +319,14 @@ void FileOps::undo(Done done) {
                         fs::remove(item.infoFile, ec);
                         r.paths.push_back(item.original);
                     } else {
-                        r.errors.push_back("Couldn't put back " + quoted(fs::path(item.original).filename().string()) + ": " + error + ".");
+                        r.errors.push_back("无法还原" + quoted(fs::path(item.original).filename().string()) + ": " + error + ".");
                     }
                 }
                 break;
             case Undo::Kind::NewFolder:
                 for (const auto& p : u.created) {
                     std::error_code ec;
-                    if (!fs::remove(p, ec) && !moveToTrash(p, &error)) r.errors.push_back("Couldn't undo: " + error + ".");
+                    if (!fs::remove(p, ec) && !moveToTrash(p, &error)) r.errors.push_back("无法撤销：" + error + ".");
                 }
                 break;
         }

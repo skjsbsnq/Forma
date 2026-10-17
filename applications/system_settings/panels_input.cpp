@@ -328,7 +328,7 @@ public:
     void draw(Painter& p) override {
         const auto& c = theme().colors;
         p.fillRoundedRect(frame(), 10, c.controlBackground, isFocused() ? c.accent : c.separator, isFocused() ? 2.0f : 1.0f);
-        p.drawText(m_hint, frame(), theme().font(TextStyle::Callout), c.secondaryLabel, TextAlign::Center);
+        p.drawText(mayo::uiText(m_hint), frame(), theme().font(TextStyle::Callout), c.secondaryLabel, TextAlign::Center);
     }
     bool onPointerDown(const PointerEvent& /*e*/) override { return true; }
     bool onKeyDown(const KeyEvent& e) override {

@@ -1,10 +1,14 @@
 #include "file_model.hpp"
 
+#include "applications.hpp"
+
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include "applications.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -16,6 +20,8 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <string_view>
+#include <string_view>
 
 namespace fs = std::filesystem;
 
@@ -35,66 +41,66 @@ struct KindInfo {
 
 const std::map<std::string, KindInfo>& kindTable() {
     static const std::map<std::string, KindInfo> table = {
-        {"png", {FileKind::Image, "PNG image"}}, {"jpg", {FileKind::Image, "JPEG image"}},
-        {"jpeg", {FileKind::Image, "JPEG image"}}, {"gif", {FileKind::Image, "GIF image"}},
-        {"webp", {FileKind::Image, "WebP image"}}, {"bmp", {FileKind::Image, "BMP image"}},
-        {"tga", {FileKind::Image, "TGA image"}}, {"tif", {FileKind::Image, "TIFF image"}},
-        {"tiff", {FileKind::Image, "TIFF image"}}, {"heic", {FileKind::Image, "HEIC image"}},
-        {"avif", {FileKind::Image, "AVIF image"}}, {"ico", {FileKind::Image, "Windows icon"}},
-        {"svg", {FileKind::Image, "SVG document"}}, {"psd", {FileKind::Image, "Photoshop document"}},
-        {"xcf", {FileKind::Image, "GIMP image"}}, {"kra", {FileKind::Image, "Krita document"}},
-        {"mp4", {FileKind::Video, "MPEG-4 movie"}}, {"m4v", {FileKind::Video, "MPEG-4 movie"}},
-        {"mkv", {FileKind::Video, "Matroska video"}}, {"webm", {FileKind::Video, "WebM video"}},
-        {"mov", {FileKind::Video, "QuickTime movie"}}, {"avi", {FileKind::Video, "AVI movie"}},
-        {"wmv", {FileKind::Video, "Windows Media video"}}, {"flv", {FileKind::Video, "Flash video"}},
-        {"mp3", {FileKind::Audio, "MP3 audio"}}, {"flac", {FileKind::Audio, "FLAC audio"}},
-        {"wav", {FileKind::Audio, "Waveform audio"}}, {"ogg", {FileKind::Audio, "Ogg Vorbis audio"}},
-        {"opus", {FileKind::Audio, "Opus audio"}}, {"m4a", {FileKind::Audio, "MPEG-4 audio"}},
-        {"aac", {FileKind::Audio, "AAC audio"}}, {"aiff", {FileKind::Audio, "AIFF audio"}},
-        {"pdf", {FileKind::Pdf, "PDF document"}},
-        {"txt", {FileKind::Text, "Plain Text"}}, {"md", {FileKind::Text, "Markdown document"}},
-        {"rst", {FileKind::Text, "reStructuredText"}}, {"log", {FileKind::Text, "Log file"}},
-        {"json", {FileKind::Text, "JSON document"}}, {"xml", {FileKind::Text, "XML document"}},
-        {"yaml", {FileKind::Text, "YAML document"}}, {"yml", {FileKind::Text, "YAML document"}},
-        {"toml", {FileKind::Text, "TOML document"}}, {"ini", {FileKind::Text, "Configuration file"}},
-        {"conf", {FileKind::Text, "Configuration file"}}, {"cfg", {FileKind::Text, "Configuration file"}},
-        {"desktop", {FileKind::Text, "Desktop entry"}}, {"srt", {FileKind::Text, "Subtitles"}},
-        {"c", {FileKind::Code, "C source"}}, {"h", {FileKind::Code, "C header"}},
-        {"cpp", {FileKind::Code, "C++ source"}}, {"cc", {FileKind::Code, "C++ source"}},
-        {"cxx", {FileKind::Code, "C++ source"}}, {"hpp", {FileKind::Code, "C++ header"}},
-        {"py", {FileKind::Code, "Python script"}}, {"js", {FileKind::Code, "JavaScript"}},
+        {"png", {FileKind::Image, "PNG 图像"}}, {"jpg", {FileKind::Image, "JPEG 图像"}},
+        {"jpeg", {FileKind::Image, "JPEG 图像"}}, {"gif", {FileKind::Image, "GIF 图像"}},
+        {"webp", {FileKind::Image, "WebP 图像"}}, {"bmp", {FileKind::Image, "BMP 图像"}},
+        {"tga", {FileKind::Image, "TGA 图像"}}, {"tif", {FileKind::Image, "TIFF 图像"}},
+        {"tiff", {FileKind::Image, "TIFF 图像"}}, {"heic", {FileKind::Image, "HEIC 图像"}},
+        {"avif", {FileKind::Image, "AVIF 图像"}}, {"ico", {FileKind::Image, "Windows 图标"}},
+        {"svg", {FileKind::Image, "SVG 文档"}}, {"psd", {FileKind::Image, "Photoshop 文档"}},
+        {"xcf", {FileKind::Image, "GIMP 图像"}}, {"kra", {FileKind::Image, "Krita 文档"}},
+        {"mp4", {FileKind::Video, "MPEG-4 视频"}}, {"m4v", {FileKind::Video, "MPEG-4 视频"}},
+        {"mkv", {FileKind::Video, "Matroska 视频"}}, {"webm", {FileKind::Video, "WebM 视频"}},
+        {"mov", {FileKind::Video, "QuickTime 视频"}}, {"avi", {FileKind::Video, "AVI 视频"}},
+        {"wmv", {FileKind::Video, "Windows Media 视频"}}, {"flv", {FileKind::Video, "Flash 视频"}},
+        {"mp3", {FileKind::Audio, "MP3 音频"}}, {"flac", {FileKind::Audio, "FLAC 音频"}},
+        {"wav", {FileKind::Audio, "Waveform 音频"}}, {"ogg", {FileKind::Audio, "Ogg Vorbis 音频"}},
+        {"opus", {FileKind::Audio, "Opus 音频"}}, {"m4a", {FileKind::Audio, "MPEG-4 音频"}},
+        {"aac", {FileKind::Audio, "AAC 音频"}}, {"aiff", {FileKind::Audio, "AIFF 音频"}},
+        {"pdf", {FileKind::Pdf, "PDF 文档"}},
+        {"txt", {FileKind::Text, "纯文本"}}, {"md", {FileKind::Text, "Markdown 文档"}},
+        {"rst", {FileKind::Text, "reStructuredText"}}, {"log", {FileKind::Text, "日志文件"}},
+        {"json", {FileKind::Text, "JSON 文档"}}, {"xml", {FileKind::Text, "XML 文档"}},
+        {"yaml", {FileKind::Text, "YAML 文档"}}, {"yml", {FileKind::Text, "YAML 文档"}},
+        {"toml", {FileKind::Text, "TOML 文档"}}, {"ini", {FileKind::Text, "配置文件"}},
+        {"conf", {FileKind::Text, "配置文件"}}, {"cfg", {FileKind::Text, "配置文件"}},
+        {"desktop", {FileKind::Text, "桌面启动项"}}, {"srt", {FileKind::Text, "字幕"}},
+        {"c", {FileKind::Code, "C 源代码"}}, {"h", {FileKind::Code, "C 头文件"}},
+        {"cpp", {FileKind::Code, "C++ 源代码"}}, {"cc", {FileKind::Code, "C++ 源代码"}},
+        {"cxx", {FileKind::Code, "C++ 源代码"}}, {"hpp", {FileKind::Code, "C++ 头文件"}},
+        {"py", {FileKind::Code, "Python 脚本"}}, {"js", {FileKind::Code, "JavaScript"}},
         {"mjs", {FileKind::Code, "JavaScript"}}, {"ts", {FileKind::Code, "TypeScript"}},
         {"tsx", {FileKind::Code, "TypeScript JSX"}}, {"jsx", {FileKind::Code, "JavaScript JSX"}},
-        {"rs", {FileKind::Code, "Rust source"}}, {"go", {FileKind::Code, "Go source"}},
-        {"java", {FileKind::Code, "Java source"}}, {"kt", {FileKind::Code, "Kotlin source"}},
-        {"swift", {FileKind::Code, "Swift source"}}, {"cs", {FileKind::Code, "C# source"}},
-        {"rb", {FileKind::Code, "Ruby script"}}, {"lua", {FileKind::Code, "Lua script"}},
-        {"sh", {FileKind::Code, "Shell script"}}, {"bash", {FileKind::Code, "Shell script"}},
-        {"zsh", {FileKind::Code, "Shell script"}}, {"fish", {FileKind::Code, "Shell script"}},
-        {"cmake", {FileKind::Code, "CMake script"}}, {"glsl", {FileKind::Code, "GLSL shader"}},
-        {"vert", {FileKind::Code, "GLSL shader"}}, {"frag", {FileKind::Code, "GLSL shader"}},
-        {"css", {FileKind::Code, "CSS style sheet"}}, {"sql", {FileKind::Code, "SQL script"}},
-        {"html", {FileKind::Web, "HTML document"}}, {"htm", {FileKind::Web, "HTML document"}},
-        {"zip", {FileKind::Archive, "ZIP archive"}}, {"tar", {FileKind::Archive, "tar archive"}},
-        {"gz", {FileKind::Archive, "gzip archive"}}, {"tgz", {FileKind::Archive, "gzip tar archive"}},
-        {"xz", {FileKind::Archive, "XZ archive"}}, {"bz2", {FileKind::Archive, "bzip2 archive"}},
-        {"zst", {FileKind::Archive, "Zstandard archive"}}, {"7z", {FileKind::Archive, "7-Zip archive"}},
-        {"rar", {FileKind::Archive, "RAR archive"}}, {"deb", {FileKind::Archive, "Debian package"}},
-        {"rpm", {FileKind::Archive, "RPM package"}}, {"jar", {FileKind::Archive, "Java archive"}},
-        {"iso", {FileKind::DiskImage, "Disk image"}}, {"img", {FileKind::DiskImage, "Disk image"}},
-        {"dmg", {FileKind::DiskImage, "Apple disk image"}}, {"qcow2", {FileKind::DiskImage, "QEMU disk image"}},
-        {"ttf", {FileKind::Font, "TrueType font"}}, {"otf", {FileKind::Font, "OpenType font"}},
-        {"woff", {FileKind::Font, "Web font"}}, {"woff2", {FileKind::Font, "Web font"}},
-        {"doc", {FileKind::Document, "Word document"}}, {"docx", {FileKind::Document, "Word document"}},
-        {"odt", {FileKind::Document, "OpenDocument text"}}, {"rtf", {FileKind::Document, "Rich Text document"}},
-        {"epub", {FileKind::Document, "EPUB book"}},
-        {"xls", {FileKind::Spreadsheet, "Excel spreadsheet"}}, {"xlsx", {FileKind::Spreadsheet, "Excel spreadsheet"}},
-        {"ods", {FileKind::Spreadsheet, "OpenDocument spreadsheet"}}, {"csv", {FileKind::Spreadsheet, "CSV document"}},
-        {"ppt", {FileKind::Presentation, "PowerPoint presentation"}},
-        {"pptx", {FileKind::Presentation, "PowerPoint presentation"}},
-        {"odp", {FileKind::Presentation, "OpenDocument presentation"}},
-        {"so", {FileKind::Executable, "Shared library"}}, {"appimage", {FileKind::Executable, "AppImage"}},
-        {"exe", {FileKind::Executable, "Windows executable"}}, {"bin", {FileKind::Executable, "Binary"}},
+        {"rs", {FileKind::Code, "Rust 源代码"}}, {"go", {FileKind::Code, "Go 源代码"}},
+        {"java", {FileKind::Code, "Java 源代码"}}, {"kt", {FileKind::Code, "Kotlin 源代码"}},
+        {"swift", {FileKind::Code, "Swift 源代码"}}, {"cs", {FileKind::Code, "C# 源代码"}},
+        {"rb", {FileKind::Code, "Ruby 脚本"}}, {"lua", {FileKind::Code, "Lua 脚本"}},
+        {"sh", {FileKind::Code, "Shell 脚本"}}, {"bash", {FileKind::Code, "Shell 脚本"}},
+        {"zsh", {FileKind::Code, "Shell 脚本"}}, {"fish", {FileKind::Code, "Shell 脚本"}},
+        {"cmake", {FileKind::Code, "CMake 脚本"}}, {"glsl", {FileKind::Code, "GLSL 着色器"}},
+        {"vert", {FileKind::Code, "GLSL 着色器"}}, {"frag", {FileKind::Code, "GLSL 着色器"}},
+        {"css", {FileKind::Code, "CSS 样式表"}}, {"sql", {FileKind::Code, "SQL 脚本"}},
+        {"html", {FileKind::Web, "HTML 文档"}}, {"htm", {FileKind::Web, "HTML 文档"}},
+        {"zip", {FileKind::Archive, "ZIP 压缩包"}}, {"tar", {FileKind::Archive, "tar 压缩包"}},
+        {"gz", {FileKind::Archive, "gzip 压缩包"}}, {"tgz", {FileKind::Archive, "gzip tar 压缩包"}},
+        {"xz", {FileKind::Archive, "XZ 压缩包"}}, {"bz2", {FileKind::Archive, "bzip2 压缩包"}},
+        {"zst", {FileKind::Archive, "Zstandard 压缩包"}}, {"7z", {FileKind::Archive, "7-Zip 压缩包"}},
+        {"rar", {FileKind::Archive, "RAR 压缩包"}}, {"deb", {FileKind::Archive, "Debian 软件包"}},
+        {"rpm", {FileKind::Archive, "RPM 软件包"}}, {"jar", {FileKind::Archive, "Java 压缩包"}},
+        {"iso", {FileKind::DiskImage, "磁盘映像"}}, {"img", {FileKind::DiskImage, "磁盘映像"}},
+        {"dmg", {FileKind::DiskImage, "Apple 磁盘映像"}}, {"qcow2", {FileKind::DiskImage, "QEMU 磁盘映像"}},
+        {"ttf", {FileKind::Font, "TrueType 字体"}}, {"otf", {FileKind::Font, "OpenType 字体"}},
+        {"woff", {FileKind::Font, "Web 字体"}}, {"woff2", {FileKind::Font, "Web 字体"}},
+        {"doc", {FileKind::Document, "Word 文档"}}, {"docx", {FileKind::Document, "Word 文档"}},
+        {"odt", {FileKind::Document, "OpenDocument 文本"}}, {"rtf", {FileKind::Document, "Rich Text 文档"}},
+        {"epub", {FileKind::Document, "EPUB 电子书"}},
+        {"xls", {FileKind::Spreadsheet, "Excel 电子表格"}}, {"xlsx", {FileKind::Spreadsheet, "Excel 电子表格"}},
+        {"ods", {FileKind::Spreadsheet, "OpenDocument 电子表格"}}, {"csv", {FileKind::Spreadsheet, "CSV 文档"}},
+        {"ppt", {FileKind::Presentation, "PowerPoint 演示文稿"}},
+        {"pptx", {FileKind::Presentation, "PowerPoint 演示文稿"}},
+        {"odp", {FileKind::Presentation, "OpenDocument 演示文稿"}},
+        {"so", {FileKind::Executable, "共享库"}}, {"appimage", {FileKind::Executable, "AppImage"}},
+        {"exe", {FileKind::Executable, "Windows 可执行文件"}}, {"bin", {FileKind::Executable, "二进制文件"}},
     };
     return table;
 }
@@ -119,18 +125,27 @@ std::optional<FileEntry> makeEntry(const std::string& path, std::string name) {
         }
     }
     e.isDir = S_ISDIR(mode);
+    e.isExecutable = !e.isDir && (mode & 0111) != 0;
+    e.special = mode & (S_ISUID | S_ISGID | S_ISVTX);
     e.mode = mode & 07777;
     e.size = e.isDir ? 0 : size;
     e.modified = mtime;
     e.created = (sx.stx_mask & STATX_BTIME) ? static_cast<std::time_t>(sx.stx_btime.tv_sec) : 0;
     if (e.isDir) {
         e.kind = FileKind::Folder;
+    } else if (e.isExecutable) {
+        // What the Finder colours as a program: the x bit, whatever the name says. A dot keeps "run.sh" a
+        // script (its kind and extension), a bare name is a program.
+        e.kind = FileKind::Executable;
+        if (std::string_view(e.name).find('.') != std::string_view::npos) {
+            e.ext = lower(fs::path(e.name).extension().string());
+            if (!e.ext.empty()) e.ext.erase(0, 1);
+        }
     } else {
         // std::filesystem treats ".bashrc" as a stem without extension, which is what we want.
         e.ext = lower(fs::path(e.name).extension().string());
         if (!e.ext.empty()) e.ext.erase(0, 1);
         e.kind = kindForExtension(e.ext);
-        if (e.kind == FileKind::Unknown && (mode & 0111) && S_ISREG(mode)) e.kind = FileKind::Executable;
         if (e.kind == FileKind::Unknown && (e.name == "Makefile" || e.name == "Dockerfile" || e.name == "PKGBUILD"))
             e.kind = FileKind::Code;
     }
@@ -228,29 +243,6 @@ std::string localTimestamp() {
     char buf[32];
     std::strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%S", &tm);
     return buf;
-}
-
-/// Runs argv detached (double fork, so no zombies and no SIGCHLD handling), optionally in `cwd`.
-void spawnDetached(const std::vector<std::string>& args, const std::string& cwd = {}) {
-    std::vector<char*> argv;
-    for (const auto& a : args) argv.push_back(const_cast<char*>(a.c_str()));
-    argv.push_back(nullptr);
-    pid_t child = fork();
-    if (child == 0) {
-        setsid();
-        if (fork() == 0) {
-            if (!cwd.empty() && chdir(cwd.c_str()) != 0) _exit(127);
-            int devnull = open("/dev/null", O_RDWR);
-            if (devnull >= 0) {
-                dup2(devnull, STDIN_FILENO);
-                dup2(devnull, STDOUT_FILENO);
-            }
-            execvp(argv[0], argv.data());
-            _exit(127);
-        }
-        _exit(0);
-    }
-    if (child > 0) waitpid(child, nullptr, 0);
 }
 
 bool onPath(const std::string& program) {
@@ -355,19 +347,42 @@ FileKind kindForExtension(const std::string& ext) {
     return it == kindTable().end() ? FileKind::Unknown : it->second.kind;
 }
 
+std::string kindLabel(FileKind kind, bool link) {
+    if (link) return "符号链接";
+    switch (kind) {
+        case FileKind::Folder: return "文件夹";
+        case FileKind::Image: return "图像";
+        case FileKind::Video: return "视频";
+        case FileKind::Audio: return "音频";
+        case FileKind::Pdf: return "PDF 文档";
+        case FileKind::Text: return "文本文稿";
+        case FileKind::Code: return "源代码";
+        case FileKind::Archive: return "压缩包";
+        case FileKind::Executable: return "Unix 可执行文件";
+        case FileKind::Document: return "文稿";
+        case FileKind::Spreadsheet: return "电子表格";
+        case FileKind::Presentation: return "演示文稿";
+        case FileKind::DiskImage: return "磁盘映像";
+        case FileKind::Font: return "字体";
+        case FileKind::Web: return "网页";
+        case FileKind::Unknown: return "文档";
+    }
+    return "文档";
+}
+
 std::string kindDescription(const FileEntry& e) {
-    if (e.isLink) return "Alias";
-    if (e.isDir) return "Folder";
+    if (e.isLink) return "符号链接";
+    if (e.isDir) return "文件夹";
     auto it = kindTable().find(e.ext);
     if (it != kindTable().end()) return it->second.description;
-    if (e.kind == FileKind::Executable) return "Unix executable";
-    if (e.kind == FileKind::Code) return "Build script";
+    if (e.kind == FileKind::Executable) return "Unix 可执行文件";
+    if (e.kind == FileKind::Code) return "构建脚本";
     if (!e.ext.empty()) {
         std::string up = e.ext;
         std::transform(up.begin(), up.end(), up.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-        return up + " file";
+        return up + " 文件";
     }
-    return "Document";
+    return "文档";
 }
 
 bool isImageExtension(const std::string& ext) {
@@ -381,8 +396,8 @@ bool isTextLike(const FileEntry& e) {
 
 std::string formatSize(std::uintmax_t b) {
     char buf[32];
-    if (b == 0) return "Zero bytes";
-    if (b < 1000) std::snprintf(buf, sizeof buf, "%ju bytes", b);
+    if (b == 0) return "0 字节";
+    if (b < 1000) std::snprintf(buf, sizeof buf, "%ju 字节", b);
     else if (b < 1000 * 1000) std::snprintf(buf, sizeof buf, "%.0f KB", static_cast<double>(b) / 1e3);
     else if (b < 1000ull * 1000 * 1000) std::snprintf(buf, sizeof buf, "%.1f MB", static_cast<double>(b) / 1e6);
     else if (b < 1000ull * 1000 * 1000 * 1000) std::snprintf(buf, sizeof buf, "%.2f GB", static_cast<double>(b) / 1e9);
@@ -403,13 +418,13 @@ std::string formatDate(std::time_t t) {
     yesterday.tm_mday -= 1;
     std::mktime(&yesterday);
     auto sameDay = [](const std::tm& a, const std::tm& b) { return a.tm_year == b.tm_year && a.tm_yday == b.tm_yday; };
-    if (sameDay(when, today)) return std::string("Today at ") + time;
-    if (sameDay(when, yesterday)) return std::string("Yesterday at ") + time;
+    if (sameDay(when, today)) return std::string("今天 ") + time;
+    if (sameDay(when, yesterday)) return std::string("昨天 ") + time;
     char date[32];
-    std::strftime(date, sizeof date, "%e %b %Y", &when);
+    std::strftime(date, sizeof date, "%Y年%m月%d日", &when);
     std::string d = date;
     if (!d.empty() && d[0] == ' ') d.erase(0, 1);
-    return d + " at " + time;
+    return d + " " + time;
 }
 
 std::string formatPermissions(unsigned mode, bool dir) {
@@ -419,7 +434,7 @@ std::string formatPermissions(unsigned mode, bool dir) {
     return s;
 }
 
-std::string itemCount(size_t n) { return std::to_string(n) + (n == 1 ? " item" : " items"); }
+std::string itemCount(size_t n) { return std::to_string(n) + " 个项目"; }
 
 std::string homeDirectory() {
     const char* home = std::getenv("HOME");
@@ -451,10 +466,10 @@ std::optional<std::uintmax_t> availableSpace(const std::string& path) {
 }
 
 std::string displayName(const std::string& path) {
-    if (path == kRecents) return "Recents";
-    if (path == "/") return "Computer";
-    if (path == homeDirectory()) return "Home";
-    if (path == trashFilesDirectory()) return "Trash";
+    if (path == kRecents) return "最近使用";
+    if (path == "/") return "计算机";
+    if (path == homeDirectory()) return "主目录";
+    if (path == trashFilesDirectory()) return "回收站";
     std::string name = fs::path(path).filename().string();
     return name.empty() ? path : name;
 }
@@ -519,8 +534,8 @@ std::string copyName(const std::string& folder, const std::string& name) {
         ext.clear();
     }
     std::error_code ec;
-    std::string candidate = stem + " copy" + ext;
-    for (int i = 2; fs::exists(fs::path(folder) / candidate, ec); ++i) candidate = stem + " copy " + std::to_string(i) + ext;
+    std::string candidate = stem + " 副本" + ext;
+    for (int i = 2; fs::exists(fs::path(folder) / candidate, ec); ++i) candidate = stem + " 副本 " + std::to_string(i) + ext;
     return candidate;
 }
 
@@ -562,7 +577,7 @@ std::optional<TrashedItem> moveToTrash(const std::string& path, std::string* err
             ::close(fd);
             if (!ok) {
                 ::unlink(infoPath.c_str());
-                if (error) *error = "Couldn't write to the Trash.";
+                if (error) *error = "无法写入回收站。";
                 return std::nullopt;
             }
             break;
@@ -609,7 +624,69 @@ void emptyTrash() {
     }
 }
 
-void openWithDefaultApp(const std::string& path) { spawnDetached({"xdg-open", path}); }
+OpenResult launchWithDefaultApp(const std::string& path) {
+    OpenResult result;
+    struct stat st {};
+    if (::stat(path.c_str(), &st) != 0) {
+        result.error = "找不到该项目，它可能已被移动或删除。";
+        return result;
+    }
+    const std::string type = mimeTypeFor(path);
+    // Only a program needs an execute bit, and when it lacks one it can't be started by anybody, so say why
+    // instead of handing it to a launcher that would fail with an error nobody explains. Everything else — a
+    // picture, a text, a video — is opened by its default application, whatever its permissions are.
+    const bool isProgram = (st.st_mode & 0111) != 0;
+    if (S_ISREG(st.st_mode) && !isProgram && isExecutableType(type)) {
+        result.needsExecutableBit = true;
+        return result;
+    }
+    const std::string id = defaultApplicationId(path);
+    if (!id.empty()) {
+        const Application* app = findApplication(id);
+        result.application = app ? app->name : id;
+        if (launchApplication(id, path, &result.error)) {
+            result.launched = true;
+            return result;
+        }
+        if (!result.error.empty()) return result;  // say what went wrong, don't guess another application
+    }
+    // No default application: a program is run directly — running it *is* opening it — and anything else is
+    // offered the "打开方式" chooser.
+    if (S_ISREG(st.st_mode) && isProgram) {
+        if (spawnDetachedProcess({path}, &result.error)) {
+            result.launched = true;
+            result.application = displayName(path);
+            return result;
+        }
+        if (result.error.empty()) result.error = "无法运行“" + displayName(path) + "”。";
+        return result;
+    }
+    result.noDefaultApp = true;
+    result.type = type;
+    return result;
+}
+
+bool isExecutableType(const std::string& mimeType) {
+    static const char* const types[] = {"application/x-executable", "application/x-sharedlib",
+                                        "application/x-pie-executable", "application/x-msdos-program",
+                                        "application/vnd.microsoft.portable-executable", "application/x-msi",
+                                        "application/x-shared-library-launcher"};
+    for (const char* t : types) {
+        if (mimeType == t) return true;
+    }
+    return false;
+}
+
+std::string setExecutable(const std::string& path) {
+    struct stat st {};
+    if (::stat(path.c_str(), &st) != 0) return std::string("找不到该项目：") + std::strerror(errno) + "。";
+    const mode_t mode = (st.st_mode & 07777) | 0111;
+    if (::chmod(path.c_str(), mode) != 0) {
+        if (errno == EPERM) return "只能为自己拥有的文件添加执行权限。";
+        return std::string("无法更改权限：") + std::strerror(errno) + "。";
+    }
+    return {};
+}
 
 void openTerminal(const std::string& folder) {
     // Our own Terminal first, like Finder opens Terminal.app. It ships next to us in /usr/bin; when running from
@@ -617,10 +694,10 @@ void openTerminal(const std::string& folder) {
     std::error_code ec;
     const fs::path self = fs::read_symlink("/proc/self/exe", ec);
     for (const fs::path& own : {self.parent_path() / "terminal", self.parent_path().parent_path() / "terminal" / "terminal"}) {
-        if (!ec && fs::exists(own, ec) && own != self) return spawnDetached({own.string(), folder}, folder);
+        if (!ec && fs::exists(own, ec) && own != self) spawnDetachedIn({own.string(), folder}, folder);
     }
-    if (onPath("terminal")) return spawnDetached({"terminal", folder}, folder);
-    if (const char* t = std::getenv("TERMINAL"); t && *t && onPath(t)) return spawnDetached({t}, folder);
+    if (onPath("terminal")) spawnDetachedIn({"terminal", folder}, folder);
+    if (const char* t = std::getenv("TERMINAL"); t && *t && onPath(t)) spawnDetachedIn({t}, folder);
     // Most terminals run as a single process per user, so a new window starts in *that* process's directory
     // unless it's passed explicitly; the working directory of the child alone isn't enough.
     const std::vector<std::vector<std::string>> known = {
@@ -639,7 +716,7 @@ void openTerminal(const std::string& folder) {
         {"xterm"},
     };
     for (const auto& cmd : known) {
-        if (onPath(cmd[0])) return spawnDetached(cmd, folder);
+        if (onPath(cmd[0])) spawnDetachedIn(cmd, folder);
     }
 }
 

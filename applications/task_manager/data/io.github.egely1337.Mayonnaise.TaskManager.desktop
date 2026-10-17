@@ -1,10 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Mayo Task Manager
+Name=Forma Task Manager
+Name[zh_CN]=Forma 任务管理器
 GenericName=System Monitor
 Comment=See processes and CPU, memory, disk and network activity
-Exec=taskmanager
-Icon=io.github.egely1337.Mayonnaise.TaskManager
+Exec=forma-taskmanager
+Icon=forma-taskmanager
 Terminal=false
 StartupNotify=true
 Categories=System;Monitor;

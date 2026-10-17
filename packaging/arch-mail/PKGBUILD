@@ -1,0 +1,39 @@
+# Builds the current local Forma source, including uncommitted changes.
+pkgname=forma-mail
+pkgver=0.2.0rc1
+pkgrel=1
+pkgdesc='Forma Mail: native Chinese IMAP/SMTP email client'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme curl libsecret json-glib)
+makedepends=(cmake pkgconf vulkan-headers shaderc curl libsecret json-glib)
+optdepends=('vulkan-icd-loader: Vulkan rendering')
+options=(!debug)
+source=()
+sha256sums=()
+
+build() {
+  local mail_build_dir="${FORMA_MAIL_BUILD_DIR:-$srcdir/build}"
+  cmake -S "$startdir/../.." -B "$mail_build_dir" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "$mail_build_dir" --target forma-mail -j"$(nproc)"
+}
+
+package() {
+  local mail_build_dir="${FORMA_MAIL_BUILD_DIR:-$srcdir/build}"
+  DESTDIR="$pkgdir" cmake --install "$mail_build_dir" --component forma-mail
+  install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+}
+
+# Without these hooks the menu entry and icon only appear after the session restarts.
+_icon_cache() {
+  gtk-update-icon-cache -q -t -f usr/share/icons/hicolor 2>/dev/null || true
+}
+_desktop_db() {
+  update-desktop-database -q usr/share/applications 2>/dev/null || true
+}
+post_install() { _icon_cache; _desktop_db; }
+post_upgrade() { _icon_cache; _desktop_db; }

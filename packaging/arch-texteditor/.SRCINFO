@@ -1,0 +1,27 @@
+pkgbase = forma-texteditor
+	pkgdesc = Forma Text Editor with Simplified Chinese interface and Liquid Glass styling
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/skjsbsnq/Forma
+	arch = x86_64
+	license = GPL-3.0-only
+	license = OFL-1.1
+	makedepends = cmake
+	makedepends = pkgconf
+	makedepends = vulkan-headers
+	makedepends = shaderc
+	depends = glibc
+	depends = gcc-libs
+	depends = sdl3
+	depends = freetype2
+	depends = libglvnd
+	depends = fontconfig
+	depends = dbus
+	depends = hicolor-icon-theme
+	optdepends = vulkan-icd-loader: Vulkan rendering
+	optdepends = xdg-desktop-portal: desktop file dialogs
+	optdepends = zenity: fallback file dialogs
+	optdepends = noto-fonts-cjk: Chinese text rendering
+	options = !debug
+
+pkgname = forma-texteditor

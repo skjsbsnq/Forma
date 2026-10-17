@@ -255,7 +255,7 @@ std::array<ListColumns::Span, 4> ListColumns::layout(float width) const {
 }
 
 namespace {
-constexpr const char* kColumnTitles[4] = {"Name", "Date Modified", "Size", "Kind"};
+constexpr const char* kColumnTitles[4] = {"名称", "修改时间", "大小", "类型"};
 constexpr SortKey kColumnKeys[4] = {SortKey::Name, SortKey::Modified, SortKey::Size, SortKey::Kind};
 }  // namespace
 
@@ -293,7 +293,7 @@ void ListHeaderView::draw(Painter& p) {
         const bool numeric = i == 2;
         Rect text = cell.inset(Insets(0, i == 0 ? 40 : 10, 0, active ? 24 : 10));
         p.pushClip(cell);
-        const char* title = i == 3 && m_browser->searching ? "Where" : kColumnTitles[i];
+        const char* title = i == 3 && m_browser->searching ? "位置" : kColumnTitles[i];
         p.drawText(title, text, f, active ? c.label : c.secondaryLabel,
                    numeric ? TextAlign::Trailing : TextAlign::Leading);
         if (active) {
@@ -663,7 +663,7 @@ void ColumnListView::draw(Painter& p) {
         }
     }
     if (m_entries.empty()) {
-        p.drawText("Empty", {frame().x, frame().y + 10, frame().width, 20}, t.font(TextStyle::Callout), c.tertiaryLabel,
+        p.drawText("清空", {frame().x, frame().y + 10, frame().width, 20}, t.font(TextStyle::Callout), c.tertiaryLabel,
                    TextAlign::Center);
     }
     paintChildren(p);
@@ -715,17 +715,17 @@ void PreviewPaneView::draw(Painter& p) {
     p.drawText(truncateEnd(p, sub, small, r.width), {r.x, y, r.width, 16}, small, c.secondaryLabel, TextAlign::Center);
     y += 34;
 
-    p.drawText("Information", {r.x, y, r.width, 16}, t.font(TextStyle::Subheadline).withWeight(FontWeight::Semibold),
+    p.drawText("信息", {r.x, y, r.width, 16}, t.font(TextStyle::Subheadline).withWeight(FontWeight::Semibold),
                c.label);
     y += 22;
     std::vector<std::pair<std::string, std::string>> rows;
-    if (m_entry.created > 0) rows.emplace_back("Created", formatDate(m_entry.created));
-    rows.emplace_back("Modified", formatDate(m_entry.modified));
+    if (m_entry.created > 0) rows.emplace_back("创建时间", formatDate(m_entry.created));
+    rows.emplace_back("修改时间", formatDate(m_entry.modified));
     if (m_large) {
-        rows.emplace_back("Dimensions",
+        rows.emplace_back("尺寸",
                           std::to_string(m_large->originalWidth()) + " × " + std::to_string(m_large->originalHeight()));
     }
-    rows.emplace_back("Permissions", formatPermissions(m_entry.mode, m_entry.isDir));
+    rows.emplace_back("权限", formatPermissions(m_entry.mode, m_entry.isDir));
     const float px = 1.0f / p.scale();
     for (const auto& [label, value] : rows) {
         Rect line{r.x, y, r.width, 22};
@@ -859,7 +859,7 @@ std::vector<PathBarView::Segment> PathBarView::segments(Painter* p) const {
     std::vector<Segment> out;
     const Browser& b = *m_browser;
     if (b.path == kRecents) {
-        out.push_back({kRecents, "Recents", {}, true});
+        out.push_back({kRecents, "最近使用", {}, true});
     } else {
         const std::string home = homeDirectory();
         const std::string root = isInside(b.path, home) ? home : "/";

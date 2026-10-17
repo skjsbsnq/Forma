@@ -3,6 +3,7 @@
 #pragma once
 
 #include <mayonnaise/mayonnaise.hpp>
+#include <mayonnaise/ui_translation.hpp>
 
 #include <functional>
 #include <string>

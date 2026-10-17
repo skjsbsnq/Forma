@@ -31,3 +31,11 @@ if(PkgConfig_FOUND AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
   endif()
 endif()
 add_test(NAME mayonnaise_tests COMMAND mayonnaise_tests)
+
+# Text editor event-level regression tests run without a window or display server.
+add_executable(text_editor_tests ${PROJECT_SOURCE_DIR}/applications/text_editor/test_editor.cpp
+                                ${PROJECT_SOURCE_DIR}/applications/text_editor/editor.cpp)
+target_link_libraries(text_editor_tests PRIVATE mayonnaise::mayonnaise doctest::doctest)
+mayonnaise_set_warnings(text_editor_tests)
+mayonnaise_set_sanitizers(text_editor_tests)
+add_test(NAME text_editor_tests COMMAND text_editor_tests)

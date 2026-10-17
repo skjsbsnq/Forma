@@ -5,6 +5,7 @@
 // Import with the toolbar's Import menu (Ctrl+O / Ctrl+Shift+O), by dropping files onto the window, or
 // from the command line. Double-click (or Enter / Space) opens a photo; arrows move, Escape goes back,
 // pinch or Ctrl+scroll zooms, F marks a favourite.
+#include "../common/zh_cn.hpp"
 #include <mayonnaise/mayonnaise.hpp>
 
 #include <algorithm>
@@ -633,9 +634,10 @@ public:
 }  // namespace
 
 int main(int argc, char** argv) {
+    mayo::setUiTranslator(forma::zhCN);
     App app("photos", MAYO_DESKTOP_ID);
     auto& window = app.createWindow(
-        {.title = "Photos", .width = 1120, .height = 760, .minWidth = 700, .minHeight = 460, .autosaveName = "main"});
+        {.title = "照片", .width = 1120, .height = 760, .minWidth = 700, .minHeight = 460, .autosaveName = "main"});
     Settings& prefs = app.settings();
     // Favourites outlive the library: a re-imported photo is still a favourite.
     std::set<std::string> favoritePaths;

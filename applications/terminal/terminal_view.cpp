@@ -1013,7 +1013,7 @@ void TerminalView::draw(Painter& p) {
     if (m_exited) {
         const Font f = t.font(TextStyle::Callout);
         const Rect band{r.x, r.bottom() - 26, r.width, 22};
-        p.drawText("[Process completed]", band, f, m_profile.foreground.withAlpha(0.55f), TextAlign::Center);
+        p.drawText("[进程已结束]", band, f, m_profile.foreground.withAlpha(0.55f), TextAlign::Center);
     }
     p.popClip();
 }

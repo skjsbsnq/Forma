@@ -1,10 +1,13 @@
 [Desktop Entry]
 Type=Application
-Name=Mayo Finder
+Name=Forma Finder
+Name[zh_CN]=Forma 文件管理器
 GenericName=File Manager
+GenericName[zh_CN]=文件管理器
 Comment=Browse and manage files
+Comment[zh_CN]=浏览和管理文件
 Exec=finder %f
-Icon=io.github.egely1337.Mayonnaise.Finder
+Icon=forma-finder
 Terminal=false
 StartupNotify=true
 Categories=System;FileTools;FileManager;

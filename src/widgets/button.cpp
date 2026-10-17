@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "mayonnaise/widgets/button.hpp"
 
 #include <cmath>
@@ -23,10 +24,10 @@ float iconSize(ControlSize size) { return size == ControlSize::Small ? 12.0f : s
 
 }  // namespace
 
-ButtonView::ButtonView(std::string title) : m_title(std::move(title)) {}
+ButtonView::ButtonView(std::string title) : m_title(uiText(title)) {}
 
 void ButtonView::setTitle(std::string title) {
-    m_title = std::move(title);
+    m_title = uiText(title);
     invalidateLayout();
 }
 

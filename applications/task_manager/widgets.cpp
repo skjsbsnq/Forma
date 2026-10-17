@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "widgets.hpp"
 
 #include <algorithm>
@@ -272,7 +273,7 @@ void TableHeader::draw(Painter& p) {
         const bool active = static_cast<int>(i) == m_model->sortColumn;
         Rect text = cell.inset(Insets(0, 10, 0, active ? 22 : 10));
         p.pushClip(cell);
-        p.drawText(col.title, text, f, active ? c.label : c.secondaryLabel,
+        p.drawText(mayo::uiText(col.title), text, f, active ? c.label : c.secondaryLabel,
                    col.numeric ? TextAlign::Trailing : TextAlign::Leading);
         if (active) {
             Icon arrow = m_model->descending ? Icon::ChevronDown : Icon::ChevronUp;

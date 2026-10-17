@@ -1,8 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Mayo Photos
-GenericName=Image Viewer
-Comment=Browse and view your pictures
+Name=Forma 照片
+Name[zh_CN]=Forma 照片
+GenericName=图片查看器
+GenericName[zh_CN]=图片查看器
+Comment=浏览并查看你的照片
+Comment[zh_CN]=浏览并查看你的照片
 Exec=photos %F
 Icon=io.github.egely1337.Mayonnaise.Photos
 Terminal=false

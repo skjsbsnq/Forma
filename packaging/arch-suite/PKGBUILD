@@ -1,0 +1,50 @@
+# Local Forma source build, including current uncommitted changes.
+pkgbase=forma-desktop-apps
+pkgname=(forma-terminal forma-settings)
+pkgver=0.1.0
+pkgrel=3
+pkgdesc='Forma desktop applications with Simplified Chinese interfaces'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+makedepends=(cmake pkgconf sdl3 freetype2 glib2 vulkan-headers shaderc)
+options=(!debug)
+source=()
+sha256sums=()
+
+build() {
+  cmake -S "$startdir/../.." -B "$srcdir/build" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "$srcdir/build" --target terminal systemsettings -j"$(nproc)"
+}
+
+_install_app() {
+  DESTDIR="$pkgdir" cmake --install "$srcdir/build" --component "$1"
+  install -Dm644 "$startdir/../../applications/$2/data/$3.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/$4.svg"
+  install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+}
+
+package_forma-terminal() {
+  pkgdesc='Forma Terminal with Simplified Chinese interface'
+  depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme)
+  optdepends=('vulkan-icd-loader: Vulkan rendering' 'xdg-utils: open links')
+  provides=(mayo-terminal-git)
+  conflicts=(mayo-terminal-git)
+  _install_app terminal terminal io.github.egely1337.Mayonnaise.Terminal forma-terminal
+}
+
+package_forma-settings() {
+  pkgdesc='Forma System Settings with Simplified Chinese interface'
+  depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme glib2 gsettings-desktop-schemas)
+  optdepends=('vulkan-icd-loader: Vulkan rendering' 'zenity: fallback file dialogs'
+    'kscreen: KDE display configuration' 'powerdevil: KDE power management'
+    'plasma-workspace: KDE appearance integration' 'networkmanager: network configuration'
+    'bluez: Bluetooth' 'libpulse: sound controls (pactl)'
+    'upower: battery information' 'power-profiles-daemon: power modes'
+    'accountsservice: user accounts' 'xdg-utils: open external settings')
+  provides=(mayo-system-settings-git)
+  conflicts=(mayo-system-settings-git)
+  _install_app systemsettings system_settings io.github.egely1337.Mayonnaise.Settings forma-settings
+}

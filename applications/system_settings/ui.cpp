@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "ui.hpp"
 
 #include <algorithm>
@@ -283,7 +284,7 @@ void ChoiceGridView::draw(Painter& p) {
             const Rect c = contentRect();
             const Rect last = cellRect(m_count - 1);
             const float w = static_cast<float>(columns(c.width - 8)) * (m_cell.width + m_gap) - m_gap;
-            p.drawText(m_caption(named), {c.x + 4, last.bottom() + 6, w, kCaptionHeight - 4},
+            p.drawText(mayo::uiText(m_caption(named)), {c.x + 4, last.bottom() + 6, w, kCaptionHeight - 4},
                        theme().font(TextStyle::Caption), theme().colors.secondaryLabel, TextAlign::Center);
         }
     }

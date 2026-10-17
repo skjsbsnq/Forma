@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #pragma once
 
 #include <functional>
@@ -21,8 +22,8 @@ struct SidebarItem {
     bool isHeader = false;
 
     SidebarItem(std::string id_, Icon icon_, std::string title_)
-        : id(std::move(id_)), title(std::move(title_)), icon(icon_) {}
-    SidebarItem(std::string id_, std::string title_) : id(std::move(id_)), title(std::move(title_)) {}
+        : id(std::move(id_)), title(uiText(title_)), icon(icon_) {}
+    SidebarItem(std::string id_, std::string title_) : id(std::move(id_)), title(uiText(title_)) {}
     static SidebarItem header(std::string title) {
         SidebarItem s({}, std::move(title));
         s.isHeader = true;

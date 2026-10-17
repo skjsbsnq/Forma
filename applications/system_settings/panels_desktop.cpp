@@ -107,7 +107,7 @@ Element styleSection() {
         if (selected) p.strokeRoundedRect(preview.outset(3.5f), 11, c.accent, 3);
         else if (hovered) p.strokeRoundedRect(preview.outset(3.5f), 11, c.secondaryFill, 3);
         const Font f = theme().font(TextStyle::Subheadline).withWeight(selected ? FontWeight::Semibold : FontWeight::Regular);
-        p.drawText(i == 0 ? "Default" : "Dark", {cell.x, preview.bottom() + 5, cell.width, 16}, f,
+        p.drawText(mayo::uiText(i == 0 ? "Default" : "Dark"), {cell.x, preview.bottom() + 5, cell.width, 16}, f,
                    selected ? c.label : c.secondaryLabel, TextAlign::Center);
     });
     auto syncStyle = [scheme, styles] { styles->setSelected(scheme.getString() == "prefer-dark" ? 1 : 0); };

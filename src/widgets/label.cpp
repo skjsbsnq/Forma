@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "mayonnaise/widgets/label.hpp"
 
 #include <cmath>
@@ -20,9 +21,10 @@ Color resolveLabelColor(LabelColor role) {
     return c.label;
 }
 
-LabelView::LabelView(std::string text) : m_text(std::move(text)) {}
+LabelView::LabelView(std::string text) : m_text(uiText(text)) {}
 
 void LabelView::setText(std::string text) {
+    if (m_translateText) text = uiText(text);
     if (text == m_text) return;
     m_text = std::move(text);
     m_linesDirty = true;
@@ -87,6 +89,8 @@ void LabelView::wrap(float width) {
         m_lines.resize(static_cast<size_t>(m_lineLimit));
     }
 }
+
+float LabelView::naturalWidth() const { return std::ceil(render::measureText(m_text, font())); }
 
 Size LabelView::measureContent(Size available) {
     wrap(available.width);

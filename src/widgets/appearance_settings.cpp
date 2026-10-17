@@ -14,7 +14,7 @@ constexpr float kTileW = 68;
 constexpr float kTileH = 46;
 constexpr float kTileGap = 16;
 constexpr float kLabelH = 20;
-constexpr const char* kModeNames[3] = {"Auto", "Light", "Dark"};
+constexpr const char* kModeNames[3] = {"自动", "浅色", "深色"};
 constexpr AppearanceMode kModes[3] = {AppearanceMode::System, AppearanceMode::Light, AppearanceMode::Dark};
 
 constexpr float kDot = 16;
@@ -191,7 +191,7 @@ void AccentPickerView::draw(Painter& p) {
         p.pushOpacity(i == m_pressed && isPressed() ? 0.7f : 1.0f);
         p.drawShadow(dot, kDot * 0.5f, Color::black(0.15f), 2, {0, 0.5f});
         if (i == 0) {
-            // "System": a ring of every palette colour.
+            // "跟随系统": a ring of every palette colour.
             const float step = 2 * std::numbers::pi_v<float> / static_cast<float>(choices.size());
             for (size_t k = 0; k < choices.size(); ++k) {
                 p.drawArc(ctr, kDot * 0.25f, -std::numbers::pi_v<float> / 2 + step * static_cast<float>(k), step * 1.05f,
@@ -208,7 +208,7 @@ void AccentPickerView::draw(Painter& p) {
     // Name of the hovered (or selected) colour under the row, like System Settings.
     const int named = m_hover >= 0 ? m_hover : selected;
     if (named >= 0) {
-        std::string name = named == 0 ? "System" : choices[static_cast<size_t>(named - 1)].name;
+        std::string name = named == 0 ? "跟随系统" : choices[static_cast<size_t>(named - 1)].name;
         const Rect c2 = contentRect();
         p.drawText(name, {c2.x, c2.y + kDot + 10, c2.width, 16}, t.font(TextStyle::Caption), c.secondaryLabel,
                    TextAlign::Center);
@@ -263,7 +263,7 @@ bool AccentPickerView::onKeyDown(const KeyEvent& e) {
 // --- section -------------------------------------------------------------------------------------------
 
 FormSection AppearanceSettings(App& app) {
-    return FormSection("Appearance", {FormRow("Appearance", AppearancePicker(app)), FormRow("Accent color", AccentPicker(app))});
+    return FormSection("外观", {FormRow("外观", AppearancePicker(app)), FormRow("强调色", AccentPicker(app))});
 }
 
 }  // namespace mayo

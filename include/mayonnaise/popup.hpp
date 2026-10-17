@@ -3,6 +3,8 @@
 #include <functional>
 #include <memory>
 
+#include <optional>
+
 #include "widget.hpp"
 
 namespace mayo {
@@ -26,6 +28,8 @@ public:
 
     /// Shows the popup anchored to `anchor` (its frame at the time of the call).
     void showFrom(Widget& anchor, PopupEdge edge = PopupEdge::Below);
+    /// Anchors the popup to this rect (window points) on the next showFrom().
+    void setAnchorRect(Rect rect) { m_anchorOverride = rect; }
     void dismiss();
     [[nodiscard]] bool isShown() const { return m_shown; }
     void setOnDismiss(std::function<void()> fn) { m_onDismiss = std::move(fn); }
@@ -45,6 +49,7 @@ protected:
     virtual void drawPanel(Painter& painter) { paintChildren(painter); }
 
     Rect m_anchor;
+    std::optional<Rect> m_anchorOverride;
     PopupEdge m_edge = PopupEdge::Below;
     Material m_material;
     float m_gap = 6;

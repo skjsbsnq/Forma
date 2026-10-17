@@ -16,6 +16,8 @@ public:
     explicit LabelView(std::string text);
 
     void setText(std::string text);
+    /// Editable/user-provided content must bypass display-only UI translation.
+    void setTextTranslationEnabled(bool enabled) { m_translateText = enabled; }
     [[nodiscard]] const std::string& text() const { return m_text; }
     void setTextStyle(TextStyle style);
     void setFont(const Font& font);
@@ -25,6 +27,8 @@ public:
     void setColorRole(LabelColor role);
     [[nodiscard]] Font font() const;
     [[nodiscard]] Color textColor() const;
+    /// Width of the whole text on one line, without needing a Painter (menus, tooltips, panel sizing).
+    [[nodiscard]] float naturalWidth() const;
 
     Size measureContent(Size available) override;
     void draw(Painter& painter) override;
@@ -36,6 +40,7 @@ private:
     };
     void wrap(float width);
 
+    bool m_translateText = true;
     std::string m_text;
     TextStyle m_style = TextStyle::Body;
     std::optional<Font> m_font;
@@ -53,6 +58,7 @@ class Label : public WidgetHandle<Label, LabelView> {
 public:
     explicit Label(std::string text = {}) : WidgetHandle(std::make_shared<LabelView>(std::move(text))) {}
 
+    Label& verbatim() { return apply([](LabelView& n) { n.setTextTranslationEnabled(false); }); }
     Label& font(TextStyle style) { return apply([&](LabelView& n) { n.setTextStyle(style); }); }
     Label& font(const Font& f) { return apply([&](LabelView& n) { n.setFont(f); }); }
     Label& weight(FontWeight w) { return apply([&](LabelView& n) { n.setWeight(w); }); }

@@ -1,8 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Mayo Video Player
-GenericName=Video Player
-Comment=Watch movies and play audio, with subtitles
+Name=Forma 视频
+Name[zh_CN]=Forma 视频
+GenericName=视频播放器
+GenericName[zh_CN]=视频播放器
+Comment=观看影片与播放音频，支持字幕
+Comment[zh_CN]=观看影片与播放音频，支持字幕
 Exec=video_player %F
 Icon=io.github.egely1337.Mayonnaise.VideoPlayer
 Terminal=false

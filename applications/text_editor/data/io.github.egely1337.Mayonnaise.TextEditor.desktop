@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Forma Text
+Name[zh_CN]=Forma 文本编辑器
+Comment=A native plain text editor
+Comment[zh_CN]=轻巧的原生纯文本编辑器
+Exec=texteditor %f
+TryExec=texteditor
+Icon=io.github.egely1337.Mayonnaise.TextEditor
+Terminal=false
+Type=Application
+Categories=Utility;TextEditor;
+MimeType=text/plain;text/markdown;text/x-c++;image/svg+xml;
+Keywords=Text;Editor;Notes;文本;编辑器;笔记;
+StartupNotify=true

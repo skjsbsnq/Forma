@@ -14,7 +14,7 @@ void PopupView::showFrom(Widget& anchor, PopupEdge edge) {
     WidgetHost* host = anchor.host();
     if (!host) return;
     if (m_shown) dismiss();
-    m_anchor = anchor.frame();
+    m_anchor = m_anchorOverride.has_value() ? *m_anchorOverride : anchor.frame();
     m_edge = edge;
     m_shown = true;
     m_shownHost = host;
@@ -60,7 +60,10 @@ Rect PopupView::placePopup(Size window, Size measured) {
 void PopupView::draw(Painter& p) {
     const Theme& t = theme();
     const float a = std::clamp(sample(m_appear), 0.0f, 1.0f);
-    const Rect r = frame();
+    // The panel grows out of its anchor while it fades in, instead of appearing in place.
+    if (m_appear.isAnimating(now())) requestAnimationFrame();
+    const float fromAnchor = m_edge == PopupEdge::Below ? -6.0f : 6.0f;
+    const Rect r = frame().translated({0, (1.0f - a) * fromAnchor});
     const float radius = cornerRadiusValue();
     p.pushOpacity(a);
     // Two shadows: a wide soft one for depth and a tight one to define the edge.

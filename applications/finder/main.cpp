@@ -9,7 +9,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <sys/stat.h>
+
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <map>
 #include <set>
@@ -19,8 +23,10 @@
 
 #include "browser.hpp"
 #include "file_icons.hpp"
+#include "applications.hpp"
 #include "file_model.hpp"
 #include "file_ops.hpp"
+#include "file_panels.hpp"
 #include "panels.hpp"
 #include "preview_cache.hpp"
 #include "views.hpp"
@@ -82,25 +88,25 @@ public:
     }
 };
 
-/// "Go to Folder" sheet (Ctrl+Shift+G).
+/// "前往文件夹" sheet (Ctrl+Shift+G).
 class GoToFolderPanel : public CenteredPanel {
 public:
     explicit GoToFolderPanel(std::function<void(const std::string&)> go) : CenteredPanel(Material::Popover) {
         setPadding(Insets(18));
-        field = TextField("Enter a path, e.g. ~/Documents");
+        field = TextField("输入路径，例如 ~/Documents");
         field.onSubmit([this, go](const std::string& text) {
             auto keep = shared_from_this();
             dismiss();
             go(text);
         });
-        auto cancel = Button("Cancel").onClick([this] { dismiss(); });
-        auto open = Button("Go").style(ButtonStyle::Prominent).onClick([this, go] {
+        auto cancel = Button("取消").onClick([this] { dismiss(); });
+        auto open = Button("前往").style(ButtonStyle::Prominent).onClick([this, go] {
             auto keep = shared_from_this();
             std::string text = field.value();
             dismiss();
             go(text);
         });
-        auto stack = VStack({Label("Go to Folder").font(TextStyle::Headline), field,
+        auto stack = VStack({Label("前往文件夹").font(TextStyle::Headline), field,
                              HStack({Spacer(), cancel, open}).spacing(8)})
                          .spacing(12);
         stack.width(380);
@@ -127,6 +133,11 @@ int main(int argc, char** argv) {
     std::function<void()> syncSettings;  // refreshes the Settings window's controls while it is open
     window.setTitleVisible(false);  // the toolbar shows the folder name after the navigation buttons
     const bool demo = std::getenv("MAYO_DEMO") != nullptr;  // never launch other programs from demo runs
+    if (demo) {
+        // The MIME detector starts an external tool; demo runs keep that in-process, and a stream of helper
+        // processes at startup would make a screenshot of the very first frame show every file as binary.
+        classifyInProcessOnly(true);
+    }
 
     auto browser = std::make_shared<Browser>();
     ViewMode mode = ViewMode::Icons;
@@ -150,12 +161,12 @@ int main(int argc, char** argv) {
         std::string path;
         const char* title;
     };
-    std::vector<Place> favorites{{kRecents, "Recents"}, {home, "Home"}};
-    for (auto [key, fallback, title] : {std::tuple{"DESKTOP", "Desktop", "Desktop"},
-                                        std::tuple{"DOCUMENTS", "Documents", "Documents"},
-                                        std::tuple{"DOWNLOAD", "Downloads", "Downloads"},
-                                        std::tuple{"PICTURES", "Pictures", "Pictures"},
-                                        std::tuple{"MUSIC", "Music", "Music"}, std::tuple{"VIDEOS", "Videos", "Videos"}}) {
+    std::vector<Place> favorites{{kRecents, "最近使用"}, {home, "主目录"}};
+    for (auto [key, fallback, title] : {std::tuple{"DESKTOP", "Desktop", "桌面"},
+                                        std::tuple{"DOCUMENTS", "Documents", "文稿"},
+                                        std::tuple{"DOWNLOAD", "Downloads", "下载"},
+                                        std::tuple{"PICTURES", "Pictures", "图片"},
+                                        std::tuple{"MUSIC", "Music", "音乐"}, std::tuple{"VIDEOS", "Videos", "视频"}}) {
         std::string p = userDirectory(key, fallback);
         std::error_code ec;
         if (!p.empty() && fs::is_directory(p, ec)) favorites.push_back({p, title});
@@ -199,7 +210,7 @@ int main(int argc, char** argv) {
     auto opSpinner = ProgressSpinner();
     auto opLabel = Label("").font(TextStyle::Subheadline).secondary();
     auto statusLabel = Label("").font(TextStyle::Subheadline).secondary().textAlign(TextAlign::Center);
-    auto sizeSlider = Slider(64, 32, 128).width(110).tooltip("Icon size (Ctrl+scroll)");
+    auto sizeSlider = Slider(64, 32, 128).width(110).tooltip("图标大小（Ctrl+滚轮）");
     auto statusBar = ZStack({HStack({opSpinner, opLabel, Spacer(), sizeSlider}).spacing(6).padding(0, 12), statusLabel});
     statusBar.height(kStatusBarHeight);
     auto bottom = VStack({Element(pathBar), statusBar}).spacing(0);
@@ -221,22 +232,22 @@ int main(int argc, char** argv) {
     auto sidebar = Sidebar(std::vector<SidebarItem>{});
     auto split = SplitView(sidebar, Element(page)).sidebarWidth(200).sidebarLimits(160, 300);
 
-    auto backButton = Button(Icon::ChevronLeft).style(ButtonStyle::Borderless).tooltip("Back (Alt+←)");
-    auto forwardButton = Button(Icon::ChevronRight).style(ButtonStyle::Borderless).tooltip("Forward (Alt+→)");
+    auto backButton = Button(Icon::ChevronLeft).style(ButtonStyle::Borderless).tooltip("后退（Alt+←）");
+    auto forwardButton = Button(Icon::ChevronRight).style(ButtonStyle::Borderless).tooltip("前进（Alt+→）");
     auto titleLabel = Label("").font(TextStyle::Title3).lineLimit(1).maxWidth(320);
     auto viewControl = SegmentedControl({Icon::Grid, Icon::List, Icon::Columns}, 0);
-    viewControl.tooltip("View (Ctrl+1, Ctrl+2, Ctrl+3)");
-    auto actionMenu = Menu("", {}).icon(Icon::Ellipsis).borderless().tooltip("Actions");
-    auto searchField = SearchField("Search").width(190);
-    auto emptyTrashButton = Button("Empty").tooltip("Empty Trash (Ctrl+Shift+Delete)");
+    viewControl.tooltip("视图（Ctrl+1、Ctrl+2、Ctrl+3）");
+    auto actionMenu = Menu("", {}).icon(Icon::Ellipsis).borderless().tooltip("操作");
+    auto searchField = SearchField("搜索").width(190);
+    auto emptyTrashButton = Button("清空").tooltip("清空回收站（Ctrl+Shift+Delete）");
 
     auto quickLook = std::make_shared<QuickLookView>(browser);
     auto menu = std::make_shared<MenuView>(std::vector<MenuItem>{});
 
     FileOps ops(app, [&](const std::string& message) {
         if (!page->host()) return;
-        std::make_shared<AlertView>("The operation can't be completed.", message,
-                                    std::vector<AlertButton>{{"OK", {}, ButtonStyle::Prominent}}, true)
+        std::make_shared<AlertView>("无法完成此操作。", message,
+                                    std::vector<AlertButton>{{"确定", {}, ButtonStyle::Prominent}}, true)
             ->show(*page->host());
     });
 
@@ -269,13 +280,13 @@ int main(int argc, char** argv) {
         std::string text;
         const size_t n = b.entries.size();
         if (b.searching) {
-            text = (n == 1 ? "1 result" : std::to_string(n) + " results");
+            text = (n == 1 ? "1 个结果" : std::to_string(n) + " 个结果");
         } else if (!b.selection.empty()) {
-            text = std::to_string(b.selection.size()) + " of " + std::to_string(n) + " selected";
+            text = std::to_string(b.selection.size()) + " / " + std::to_string(n) + " 项已选中";
         } else {
             text = itemCount(n);
         }
-        if (auto free = availableSpace(b.path == kRecents ? home : b.path)) text += ", " + formatSize(*free) + " available";
+        if (auto free = availableSpace(b.path == kRecents ? home : b.path)) text += ", " + formatSize(*free) + " 可用";
         statusLabel.setText(text);
         const bool busy = ops.busy();
         opSpinner.setHidden(!busy);
@@ -289,7 +300,7 @@ int main(int argc, char** argv) {
     };
 
     auto updateChrome = [&] {
-        const std::string name = browser->searching ? "Searching “" + searchQuery + "”" : displayName(browser->path);
+        const std::string name = browser->searching ? "正在搜索“" + searchQuery + "”" : displayName(browser->path);
         titleLabel.setText(name);
         window.setTitle(browser->searching ? name : displayName(browser->path));
         backButton.setDisabled(back.empty());
@@ -324,16 +335,16 @@ int main(int argc, char** argv) {
         if (browser->searching && searcher.running()) show = false;
         empty.setHidden(!show || mode == ViewMode::Columns);
         if (!listError.empty()) {
-            emptyLabel.setText("Can't Open “" + displayName(browser->path) + "”");
-            emptyDetail.setText("You may not have permission to see its contents.");
+            emptyLabel.setText("无法打开“" + displayName(browser->path) + "”");
+            emptyDetail.setText("你可能没有查看其内容的权限。");
         } else if (browser->searching) {
-            emptyLabel.setText("No Results");
-            emptyDetail.setText("Nothing below “" + displayName(browser->path) + "” matches “" + searchQuery + "”.");
+            emptyLabel.setText("没有搜索结果");
+            emptyDetail.setText("在“" + displayName(browser->path) + "”中未找到匹配“" + searchQuery + "”.");
         } else if (browser->path == kRecents) {
-            emptyLabel.setText("No Recent Files");
-            emptyDetail.setText("Files you open in other apps appear here.");
+            emptyLabel.setText("没有最近使用的文件");
+            emptyDetail.setText("在其他应用中打开的文件会显示在这里。");
         } else {
-            emptyLabel.setText("Trash Is Empty");
+            emptyLabel.setText("回收站为空");
             emptyDetail.setText("");
         }
     };
@@ -386,8 +397,8 @@ int main(int argc, char** argv) {
                     return;
                 }
                 if (page->host()) {
-                    std::make_shared<AlertView>("The folder can't be found.", "“" + path + "” doesn't exist.",
-                                                std::vector<AlertButton>{{"OK", {}, ButtonStyle::Prominent}}, true)
+                    std::make_shared<AlertView>("找不到文件夹。", "“" + path + "”不存在。",
+                                                std::vector<AlertButton>{{"确定", {}, ButtonStyle::Prominent}}, true)
                         ->show(*page->host());
                 }
                 return;
@@ -470,17 +481,117 @@ int main(int argc, char** argv) {
     std::function<void(const std::string&, const std::string&)> showAlert = [&](const std::string& title,
                                                                                  const std::string& message) {
         if (!page->host()) return;
-        std::make_shared<AlertView>(title, message, std::vector<AlertButton>{{"OK", {}, ButtonStyle::Prominent}}, true)
+        std::make_shared<AlertView>(title, message, std::vector<AlertButton>{{"确定", {}, ButtonStyle::Prominent}}, true)
             ->show(*page->host());
+    };
+
+    std::function<void(const FileEntry&)> showOpenWith;  // defined with the panels below
+
+    // Opening ---------------------------------------------------------------------------------------
+    // Reacts to what actually happened, because the failure modes need a fix, not just a message:
+    //   * a program whose execute bit is missing can't be started by anyone (and no launcher may add it), so
+    //     the alert offers to mark it executable, like the Finder's "trust" dialog;
+    //   * no application is registered for the type: offer "打开方式";
+    //   * the application is gone or can't be started: say which one and why.
+    std::function<void(const std::string&)> openPath;
+    auto showExecuteBitAlert = [&](const std::string& path) {
+        if (!page->host()) return;
+        const std::string name = displayName(path);
+        std::make_shared<AlertView>(
+            "“" + name + "”是可执行文件，但没有执行权限，因此现在无法启动它。",
+            "出于安全考虑，Finder 不会直接运行没有执行权限的文件。你可以为它添加执行权限后再打开（相当于终端里的 chmod +x）。",
+            std::vector<AlertButton>{{"取消", {}},
+                                     {"添加执行权限并打开",
+                                      [&, path] {
+                                          if (auto error = setExecutable(path); !error.empty()) {
+                                              showAlert("无法打开“" + displayName(path) + "”。", error);
+                                              return;
+                                          }
+                                          reload();
+                                          openPath(path);
+                                      },
+                                      ButtonStyle::Prominent}},
+            true)
+            ->show(*page->host());
+    };
+    auto showNoDefaultAppAlert = [&](const std::string& path) {
+        if (!page->host()) return;
+        const std::string name = displayName(path);
+        const std::string type = mimeTypeFor(path);
+        const std::string label = mimeTypeLabel(type);
+        std::make_shared<AlertView>(
+            "没有可用于“" + name + "”的应用程序。",
+            "系统没有为这种文件类型（" + (label.empty() ? (type.empty() ? std::string("未知") : type) : label + "，" + type) +
+                "）设置默认应用。可以用“打开方式”选择一个。",
+            std::vector<AlertButton>{{"取消", {}},
+                                     {"打开方式…",
+                                      [&, path] {
+                                          if (auto entry = statEntry(path)) showOpenWith(*entry);
+                                      },
+                                      ButtonStyle::Prominent}},
+            true)
+            ->show(*page->host());
+    };
+    openPath = [&](const std::string& path) {
+        // Demo runs must not start programs, but the two failure modes before a launch (no execute bit, no
+        // default application) are exactly what the screenshots should show, so they are checked here too.
+        if (demo) {
+            struct stat st {};
+            if (::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode) && (st.st_mode & 0111) == 0) {
+                showExecuteBitAlert(path);
+                return;
+            }
+            if (defaultApplicationId(path).empty()) {
+                showNoDefaultAppAlert(path);
+                return;
+            }
+            return;
+        }
+        OpenResult result = launchWithDefaultApp(path);
+        if (result.launched || !page->host()) return;
+        const std::string name = displayName(path);
+        if (result.needsExecutableBit) {
+            std::make_shared<AlertView>(
+                "“" + name + "”是可执行文件，但没有执行权限，因此现在无法启动它。",
+                "出于安全考虑，Finder 不会直接运行没有执行权限的文件。你可以为它添加执行权限后再打开（相当于终端里的 chmod +x）。",
+                std::vector<AlertButton>{{"取消", {}},
+                                         {"添加执行权限并打开",
+                                          [&, path] {
+                                              if (auto error = setExecutable(path); !error.empty()) {
+                                                  showAlert("无法打开“" + displayName(path) + "”。", error);
+                                                  return;
+                                              }
+                                              reload();
+                                              openPath(path);
+                                          },
+                                          ButtonStyle::Prominent}},
+                true)
+                ->show(*page->host());
+        } else if (result.noDefaultApp) {
+            std::make_shared<AlertView>(
+                "没有可用于“" + name + "”的应用程序。",
+                "系统没有为这种文件类型（" + (result.type.empty() ? std::string("未知") : result.type) +
+                    "）设置默认应用。可以用“打开方式”选择一个。",
+                std::vector<AlertButton>{{"取消", {}},
+                                         {"打开方式…",
+                                          [&, path] {
+                                              if (auto entry = statEntry(path)) showOpenWith(*entry);
+                                          },
+                                          ButtonStyle::Prominent}},
+                true)
+                ->show(*page->host());
+        } else {
+            showAlert("无法打开“" + name + "”。", result.error);
+        }
     };
 
     browser->open = [&](const FileEntry& e) {
         if (e.isDir) {
             navigateTo(e.path, {}, true);
         } else if (isInTrash(e.path)) {
-            showAlert("“" + e.name + "” is in the Trash.", "To use this item, first drag it out of the Trash or use Put Back.");
-        } else if (!demo) {
-            openWithDefaultApp(e.path);
+            showAlert("“" + e.name + "”位于回收站中。", "要使用此项目，请先将其拖出回收站或选择“放回原处”。");
+        } else {
+            openPath(e.path);  // itself a no-op for real launches in demo mode
         }
     };
 
@@ -515,12 +626,12 @@ int main(int argc, char** argv) {
         if (paths.empty()) return;
         if (inTrash()) {
             auto alert = std::make_shared<AlertView>(
-                "Are you sure you want to delete " + (paths.size() == 1 ? "“" + fs::path(paths[0]).filename().string() + "”"
-                                                                        : "these " + std::to_string(paths.size()) + " items") +
-                    " immediately?",
-                "You can't undo this action.",
-                std::vector<AlertButton>{{"Cancel", {}},
-                                         {"Delete", [&, paths] { ops.deleteImmediately(paths, [&](auto) { reload(); }); },
+                "确定要永久删除" + (paths.size() == 1 ? "“" + fs::path(paths[0]).filename().string() + "”"
+                                                                        : "这 " + std::to_string(paths.size()) + " 个项目") +
+                    "吗？",
+                "此操作无法撤销。",
+                std::vector<AlertButton>{{"取消", {}},
+                                         {"删除", [&, paths] { ops.deleteImmediately(paths, [&](auto) { reload(); }); },
                                           ButtonStyle::Destructive}},
                 true);
             alert->show(*page->host());
@@ -566,9 +677,9 @@ int main(int argc, char** argv) {
 
     auto emptyTrash = [&] {
         auto alert = std::make_shared<AlertView>(
-            "Are you sure you want to permanently erase the items in the Trash?", "You can't undo this action.",
-            std::vector<AlertButton>{{"Cancel", {}},
-                                     {"Empty Trash", [&] { ops.emptyTrash([&](auto) { reload(); }); }, ButtonStyle::Destructive}},
+            "确定要永久删除回收站中的项目吗？", "此操作无法撤销。",
+            std::vector<AlertButton>{{"取消", {}},
+                                     {"清空回收站", [&] { ops.emptyTrash([&](auto) { reload(); }); }, ButtonStyle::Destructive}},
             true);
         alert->show(*page->host());
     };
@@ -682,55 +793,40 @@ int main(int argc, char** argv) {
         if (isRealFolder() && !inTrash()) ops.copy(paths, browser->path, [&](std::vector<std::string> c) { selectAfterOp(c); });
     });
 
-    // Get Info -------------------------------------------------------------------------------------------
+    // 打开方式 / 属性 -------------------------------------------------------------------------------------
+    // macOS's Get Info. The application row's button opens "打开方式", which can also make the choice stick
+    // for everything of this kind.
     auto showInfo = [&] {
         auto paths = browser->selectedPaths();
-        std::string path = paths.empty() ? (isRealFolder() ? browser->path : std::string()) : paths.front();
-        auto st = path.empty() ? std::nullopt : statEntry(path);
-        if (!st || !page->host()) return;
-        const FileEntry e = *st;
-        auto sizeValue = Label(e.isDir ? "Calculating…" : formatSize(e.size) + " (" + std::to_string(e.size) + " bytes)");
-        auto row = [](const std::string& key, const Element& value) {
-            return HStack({Label(key + ":").secondary().textAlign(TextAlign::Trailing).width(92), value}).spacing(8);
-        };
-        auto icon = Canvas([&previews, e](Painter& p, const Rect& r) {
-            IconStyle s;
-            s.preview = previews.get(e, r.width * p.scale());
-            s.folderGlyph = e.isDir ? folderGlyphFor(e.path) : Icon::None;
-            drawFileIcon(p, r, e, s);
+        const std::string path = paths.empty() ? (isRealFolder() ? browser->path : std::string()) : paths.front();
+        auto entry = path.empty() ? std::nullopt : statEntry(path);
+        if (!entry || !page->host()) return;
+        auto appButton = Button("更改…");
+        appButton.onClick([&, e = *entry] {
+            auto keep = appButton;
+            closeProperties(*page->host());
+            showOpenWith(e);
         });
-        icon.frame(56, 56);
-        auto name = Label(e.name).font(TextStyle::Headline).lineLimit(2).maxWidth(250);
-        auto headerText = VStack({name, Label(kindDescription(e)).secondary()}).spacing(2);
-        std::vector<Element> rows{
-            HStack({icon, headerText}).spacing(12).align(Alignment::Leading),
-            Divider(),
-            row("Kind", Label(kindDescription(e))),
-            row("Size", sizeValue),
-            row("Where", Label(parentPath(e.path)).lineLimit(3).maxWidth(220)),
-        };
-        if (e.created > 0) rows.push_back(row("Created", Label(formatDate(e.created))));
-        rows.push_back(row("Modified", Label(formatDate(e.modified))));
-        rows.push_back(row("Permissions", Label(formatPermissions(e.mode, e.isDir))));
-        if (e.isLink) {
-            std::error_code ec;
-            rows.push_back(row("Original", Label(fs::read_symlink(e.path, ec).string()).lineLimit(2).maxWidth(220)));
+        presentProperties(*page->host(), *entry, appButton, [&] {
+            // New permissions on screen: redraw the item's icon and the status line (a program!)
+            if (auto* v = currentView()) v->invalidate();
+        });
+        if (entry->isDir) {
+            ops.folderSize(entry->path, [](std::uintmax_t bytes, size_t items) { setLatestFolderSize(bytes, items); });
         }
-        if (isInTrash(e.path)) {
-            if (auto original = trashOriginalPath(e.path)) rows.push_back(row("Put Back To", Label(parentPath(*original)).maxWidth(220)));
-        }
-        auto panel = std::make_shared<CenteredPanel>(Material::Popover);
-        panel->setPadding(Insets(18));
-        auto stack = VStack(rows).spacing(8);
-        stack.width(340);
-        panel->addChild(stack.node());
-        if (e.isDir) {
-            std::weak_ptr<Widget> weak = panel;
-            ops.folderSize(e.path, [weak, sizeValue](std::uintmax_t bytes, size_t items) mutable {
-                if (!weak.lock()) return;
-                sizeValue.setText(formatSize(bytes) + " for " + itemCount(items));
-            });
-        }
+    };
+
+    showOpenWith = [&](const FileEntry& entry) {
+        if (!page->host()) return;
+        auto panel = std::make_shared<OpenWithPanel>(entry, [&] { app.post([&] { focusView(); }); });
+        panel->setOnOpen([&](const std::string& id, bool remember) {
+            if (remember) {
+                if (const std::string problem = rememberProblem(entry, id); !problem.empty()) return problem;
+                if (const std::string error = rememberApplication(entry, id); !error.empty()) return error;
+            }
+            // "Always" also opens the item with the chosen application.
+            return openEntryWith(entry, id);
+        });
         panel->present(*page->host());
     };
 
@@ -884,9 +980,9 @@ int main(int argc, char** argv) {
             settingsWindow->raise();
             return;
         }
-        auto& w = app.createWindow({.title = "Finder Settings", .width = 560, .height = 620, .minWidth = 480, .minHeight = 360});
+        auto& w = app.createWindow({.title = "Forma Finder 设置", .width = 560, .height = 620, .minWidth = 480, .minHeight = 360});
         const std::string where = prefs.getString("startIn", "home");
-        auto startPicker = Picker({"Home", "Recents", "Last Folder Visited"}, where == "recents" ? 1 : where == "last" ? 2 : 0)
+        auto startPicker = Picker({"主目录", "最近使用", "上次访问的文件夹"}, where == "recents" ? 1 : where == "last" ? 2 : 0)
                                .onChange([&](int i) { prefs.set("startIn", i == 1 ? "recents" : i == 2 ? "last" : "home"); });
         auto hidden = Toggle("", browser->showHidden).onChange([&](bool on) {
             if (on != browser->showHidden) toggleHidden();
@@ -904,10 +1000,10 @@ int main(int argc, char** argv) {
         });
         auto form = Form({
             AppearanceSettings(app),
-            FormSection("General", {FormRow("New windows open", startPicker), FormRow("Show hidden files", hidden, "Ctrl+H"),
-                                    FormRow("Keep folders on top", foldersOnTop)}),
-            FormSection("Window", {FormRow("Show path bar", showPath), FormRow("Show status bar", showStatus)},
-                        "Settings are saved in " + (isInside(prefs.directory(), home) ? "~" + prefs.directory().substr(home.size())
+            FormSection("通用", {FormRow("新窗口打开", startPicker), FormRow("显示隐藏文件", hidden, "Ctrl+H"),
+                                    FormRow("文件夹置顶", foldersOnTop)}),
+            FormSection("窗口", {FormRow("显示路径栏", showPath), FormRow("显示状态栏", showStatus)},
+                        "设置保存在 " + (isInside(prefs.directory(), home) ? "~" + prefs.directory().substr(home.size())
                                                                                           : prefs.directory())),
         });
         w.setContent(ScrollView(VStack({form}).padding(Insets(12, 24, 24, 24))));
@@ -934,16 +1030,16 @@ int main(int argc, char** argv) {
     auto sortItems = [&]() {
         std::vector<MenuItem> items;
         const std::pair<SortKey, const char*> keys[] = {
-            {SortKey::Name, "Name"}, {SortKey::Kind, "Kind"}, {SortKey::Modified, "Date Modified"}, {SortKey::Size, "Size"}};
+            {SortKey::Name, "名称"}, {SortKey::Kind, "类型"}, {SortKey::Modified, "修改时间"}, {SortKey::Size, "大小"}};
         for (auto [key, title] : keys) {
-            items.push_back(MenuItem(std::string("Sort by ") + title, [&, key] {
+            items.push_back(MenuItem(std::string("排序依据：") + title, [&, key] {
                                 if (browser->sort.key == key) return;
                                 browser->sort.key = key;
                                 browser->sort.ascending = key == SortKey::Name || key == SortKey::Kind;
                                 browser->sortChanged();
                             }).setChecked(browser->sort.key == key));
         }
-        items.push_back(MenuItem("Keep Folders on Top", [&] {
+        items.push_back(MenuItem("文件夹置顶", [&] {
                             browser->sort.foldersFirst = !browser->sort.foldersFirst;
                             browser->sortChanged();
                         }).setChecked(browser->sort.foldersFirst));
@@ -953,12 +1049,49 @@ int main(int argc, char** argv) {
     auto viewItems = [&]() {
         std::vector<MenuItem> items;
         const std::pair<ViewMode, const char*> modes[] = {
-            {ViewMode::Icons, "as Icons"}, {ViewMode::List, "as List"}, {ViewMode::Columns, "as Columns"}};
+            {ViewMode::Icons, "图标"}, {ViewMode::List, "列表"}, {ViewMode::Columns, "分栏"}};
         int k = 1;
         for (auto [m, title] : modes) {
-            items.push_back(MenuItem(std::string("View ") + title, [&, m] { setMode(m); })
+            items.push_back(MenuItem(std::string("视图：") + title, [&, m] { setMode(m); })
                                 .setChecked(mode == m)
                                 .withShortcut("Ctrl+" + std::to_string(k++)));
+        }
+        return items;
+    };
+
+    // "打开方式 ▸": every application that opens the item; the current one is ticked. With no other
+    // application installed the row stays visible but disabled ("没有其他应用"), so the menu never looks like
+    // the feature is missing.
+    auto openWithItems = [&]() {
+        std::vector<MenuItem> items;
+        auto paths = browser->selectedPaths();
+        auto first = paths.size() == 1 ? statEntry(paths.front()) : std::nullopt;
+        if (!first) return items;
+        auto choices = applicationChoices(*first);
+        const std::string current = defaultApplicationId(first->path);
+        for (const auto& choice : choices) {
+            items.push_back(MenuItem(choice.name, [&, e = *first, id = choice.id] {
+                                if (const std::string error = openEntryWith(e, id); !error.empty()) showAlert("无法打开“" + e.name + "”。", error);
+                            })
+                                .withImage(applicationIconImage(choice.icon))
+                                .setChecked(choice.id == current)
+                                .withDetail(choice.id == current ? "默认" : ""));
+        }
+        items.push_back(MenuItem::separator());
+        items.push_back(MenuItem("选择其他应用…", [&, e = *first] { showOpenWith(e); }).withIcon(Icon::Ellipsis));
+        if (!first->isDir && !isInTrash(first->path)) {
+            items.push_back(MenuItem("始终以此方式打开", [&, e = *first] {
+                                auto panel = std::make_shared<OpenWithPanel>(e, [&] { app.post([&] { focusView(); }); });
+                                panel->setRemember(true);
+                                panel->setOnOpen([&](const std::string& id, bool remember) {
+                                    if (remember) {
+                                        if (const std::string problem = rememberProblem(e, id); !problem.empty()) return problem;
+                                        if (const std::string error = rememberApplication(e, id); !error.empty()) return error;
+                                    }
+                                    return openEntryWith(e, id);
+                                });
+                                panel->present(*page->host());
+                            }).withIcon(Icon::Checkmark));
         }
         return items;
     };
@@ -966,25 +1099,27 @@ int main(int argc, char** argv) {
     auto backgroundItems = [&]() {
         std::vector<MenuItem> items;
         if (inTrash()) {
-            items.push_back(MenuItem("Empty Trash", emptyTrash).asDestructive().disabled(browser->entries.empty()));
+            items.push_back(MenuItem("清空回收站", emptyTrash).asDestructive().disabled(browser->entries.empty()));
             items.push_back(MenuItem::separator());
         }
-        items.push_back(MenuItem("New Folder", newFolder).withIcon(Icon::FolderPlus).withShortcut("Ctrl+Shift+N")
+        items.push_back(MenuItem("新建文件夹", newFolder).withIcon(Icon::FolderPlus).withShortcut("Ctrl+Shift+N")
                             .disabled(!isRealFolder() || inTrash()));
         const size_t clip = clipboard.paths.size();
-        items.push_back(MenuItem(clip > 1 ? "Paste " + std::to_string(clip) + " Items" : "Paste Item", paste)
+        items.push_back(MenuItem(clip > 1 ? "粘贴 " + std::to_string(clip) + " 个项目" : "粘贴项目", paste)
                             .withShortcut("Ctrl+V")
                             .disabled(!isRealFolder() || inTrash()));
         items.push_back(MenuItem::separator());
-        items.push_back(MenuItem("Get Info", showInfo).withIcon(Icon::Info).withShortcut("Ctrl+I").disabled(!isRealFolder()));
-        items.push_back(MenuItem("Open in Terminal", openTerminalHere).withIcon(Icon::Terminal));
-        items.push_back(MenuItem("Copy Path", copyPath).withShortcut("Ctrl+Alt+C").disabled(!isRealFolder()));
+        items.push_back(MenuItem("在终端中打开", openTerminalHere).withIcon(Icon::Terminal));
+        items.push_back(MenuItem("复制路径", copyPath).withShortcut("Ctrl+Alt+C").disabled(!isRealFolder()));
+        items.push_back(MenuItem::separator());
+        items.push_back(MenuItem("显示简介", showInfo).withIcon(Icon::Info).withShortcut("Ctrl+I").disabled(!isRealFolder()));
+        items.push_back(MenuItem("属性", showInfo).withIcon(Icon::Gear).withShortcut("Ctrl+I").disabled(!isRealFolder()));
         items.push_back(MenuItem::separator());
         for (auto& it : viewItems()) items.push_back(std::move(it));
         items.push_back(MenuItem::separator());
         for (auto& it : sortItems()) items.push_back(std::move(it));
         items.push_back(MenuItem::separator());
-        items.push_back(MenuItem("Show Hidden Files", toggleHidden).setChecked(browser->showHidden).withShortcut("Ctrl+H"));
+        items.push_back(MenuItem("显示隐藏文件", toggleHidden).setChecked(browser->showHidden).withShortcut("Ctrl+H"));
         return items;
     };
 
@@ -994,25 +1129,28 @@ int main(int argc, char** argv) {
         const bool single = paths.size() == 1;
         auto first = single ? statEntry(paths.front()) : std::nullopt;
         const bool trashed = !paths.empty() && isInTrash(paths.front());
-        items.push_back(MenuItem("Open", openSelection).withShortcut("Ctrl+O").disabled(trashed && !(first && first->isDir)));
-        if (trashed) items.push_back(MenuItem("Put Back", putBack));
+        items.push_back(MenuItem("打开", openSelection).withShortcut("Ctrl+O").disabled(trashed && !(first && first->isDir)));
+        auto openWith = openWithItems();
+        if (!openWith.empty()) items.push_back(MenuItem("打开方式").withSubmenu(std::move(openWith)).disabled(trashed));
+        if (trashed) items.push_back(MenuItem("放回原处", putBack));
         items.push_back(MenuItem::separator());
-        items.push_back(MenuItem(single ? "Quick Look “" + fs::path(paths.front()).filename().string() + "”" : "Quick Look",
+        items.push_back(MenuItem(single ? "快速预览“" + fs::path(paths.front()).filename().string() + "”" : "快速预览",
                                  [&] { browser->quickLook(); })
                             .withIcon(Icon::Magnifier).withShortcut("Space"));
-        items.push_back(MenuItem("Get Info", showInfo).withIcon(Icon::Info).withShortcut("Ctrl+I"));
-        items.push_back(MenuItem("Rename", renameSelected).withIcon(Icon::Pencil).withShortcut("Enter").disabled(!single || trashed));
-        items.push_back(MenuItem("Duplicate", duplicate).withIcon(Icon::DocOnDoc).withShortcut("Ctrl+D").disabled(!isRealFolder() || trashed));
+        items.push_back(MenuItem("显示简介", showInfo).withIcon(Icon::Info).withShortcut("Ctrl+I"));
+        items.push_back(MenuItem("属性", showInfo).withIcon(Icon::Gear).withShortcut("Ctrl+I"));
+        items.push_back(MenuItem("重命名", renameSelected).withIcon(Icon::Pencil).withShortcut("Enter").disabled(!single || trashed));
+        items.push_back(MenuItem("创建副本", duplicate).withIcon(Icon::DocOnDoc).withShortcut("Ctrl+D").disabled(!isRealFolder() || trashed));
         items.push_back(MenuItem::separator());
-        items.push_back(MenuItem("Copy", [&] { copySelection(false); }).withShortcut("Ctrl+C"));
-        items.push_back(MenuItem("Cut", [&] { copySelection(true); }).withShortcut("Ctrl+X").disabled(trashed));
-        items.push_back(MenuItem("Copy Path", copyPath).withShortcut("Ctrl+Alt+C"));
+        items.push_back(MenuItem("复制", [&] { copySelection(false); }).withShortcut("Ctrl+C"));
+        items.push_back(MenuItem("剪切", [&] { copySelection(true); }).withShortcut("Ctrl+X").disabled(trashed));
+        items.push_back(MenuItem("复制路径", copyPath).withShortcut("Ctrl+Alt+C"));
         items.push_back(MenuItem::separator());
-        if (!isRealFolder()) items.push_back(MenuItem("Show in Enclosing Folder", showInEnclosingFolder).withShortcut("Ctrl+R").disabled(!single));
-        if (first && first->isDir) items.push_back(MenuItem("Open in Terminal", openTerminalHere).withIcon(Icon::Terminal));
+        if (!isRealFolder()) items.push_back(MenuItem("打开所在文件夹", showInEnclosingFolder).withShortcut("Ctrl+R").disabled(!single));
+        if (first && first->isDir) items.push_back(MenuItem("在终端中打开", openTerminalHere).withIcon(Icon::Terminal));
         if (!isRealFolder() || (first && first->isDir)) items.push_back(MenuItem::separator());
-        items.push_back(MenuItem(trashed ? "Delete Immediately…" : "Move to Trash", moveToTrashSelected)
-                            .withIcon(Icon::Trash).withShortcut("Delete").asDestructive());
+        items.push_back(MenuItem(trashed ? "立即删除…" : "移到回收站", moveToTrashSelected)
+                            .withIcon(Icon::Trash).withShortcut("删除").asDestructive());
         return items;
     };
 
@@ -1028,32 +1166,33 @@ int main(int argc, char** argv) {
     // The toolbar's action menu is rebuilt whenever it might have changed.
     refreshActionMenu = [&] {
         std::vector<MenuItem> items{
-            MenuItem("New Folder", newFolder).withIcon(Icon::FolderPlus).withShortcut("Ctrl+Shift+N").disabled(!isRealFolder() || inTrash()),
-            MenuItem("Go to Folder…", goToFolder).withShortcut("Ctrl+Shift+G"),
-            MenuItem("Settings…", openSettings).withIcon(Icon::Gear).withShortcut("Ctrl+,"),
-            MenuItem("Get Info", showInfo).withIcon(Icon::Info).withShortcut("Ctrl+I"),
-            MenuItem("Open in Terminal", openTerminalHere).withIcon(Icon::Terminal),
+            MenuItem("新建文件夹", newFolder).withIcon(Icon::FolderPlus).withShortcut("Ctrl+Shift+N").disabled(!isRealFolder() || inTrash()),
+            MenuItem("前往文件夹…", goToFolder).withShortcut("Ctrl+Shift+G"),
+            MenuItem("设置…", openSettings).withIcon(Icon::Gear).withShortcut("Ctrl+,"),
+            MenuItem("显示简介", showInfo).withIcon(Icon::Info).withShortcut("Ctrl+I"),
+            MenuItem("属性", showInfo).withIcon(Icon::Gear).withShortcut("Ctrl+I"),
+            MenuItem("在终端中打开", openTerminalHere).withIcon(Icon::Terminal),
             MenuItem::separator(),
         };
         if (inTrash()) {
-            items.push_back(MenuItem("Empty Trash", emptyTrash).asDestructive().disabled(browser->entries.empty()));
+            items.push_back(MenuItem("清空回收站", emptyTrash).asDestructive().disabled(browser->entries.empty()));
             items.push_back(MenuItem::separator());
         }
         items.push_back(MenuItem(ops.undoTitle(), undo).withShortcut("Ctrl+Z").disabled(!ops.canUndo()));
         items.push_back(MenuItem::separator());
         for (auto& it : sortItems()) items.push_back(std::move(it));
         items.push_back(MenuItem::separator());
-        items.push_back(MenuItem("Show Hidden Files", toggleHidden).setChecked(browser->showHidden).withShortcut("Ctrl+H"));
+        items.push_back(MenuItem("显示隐藏文件", toggleHidden).setChecked(browser->showHidden).withShortcut("Ctrl+H"));
         actionMenu.setItems(std::move(items));
     };
     // Sidebar ----------------------------------------------------------------------------------------------
     auto rebuildSidebar = [&] {
-        std::vector<SidebarItem> items{SidebarItem::header("Favorites")};
+        std::vector<SidebarItem> items{SidebarItem::header("收藏")};
         for (const auto& f : favorites) items.emplace_back(f.path, placeIcon(f.path), f.title);
-        items.push_back(SidebarItem::header("Locations"));
-        items.emplace_back("/", Icon::HardDrive, "Computer");
+        items.push_back(SidebarItem::header("位置"));
+        items.emplace_back("/", Icon::HardDrive, "计算机");
         for (const auto& v : mountedVolumes()) items.emplace_back(v.mountPoint, Icon::HardDrive, v.name);
-        items.emplace_back(trashFilesDirectory(), Icon::Trash, "Trash");
+        items.emplace_back(trashFilesDirectory(), Icon::Trash, "回收站");
         sidebar.setItems(std::move(items));
     };
     sidebar.onSelect([&](const std::string& id) {
@@ -1173,7 +1312,7 @@ int main(int argc, char** argv) {
         const std::string view = prefs.getString("view", "icons");
         setMode(view == "list" ? ViewMode::List : view == "columns" ? ViewMode::Columns : ViewMode::Icons);
     }
-    // "New windows open": home (default), Recents, or the last folder visited.
+    // "新窗口打开": home (default), Recents, or the last folder visited.
     std::string start = home;
     if (const std::string where = prefs.getString("startIn", "home"); where == "recents") {
         start = kRecents;
@@ -1191,7 +1330,8 @@ int main(int argc, char** argv) {
     navigateTo(start, {}, false);
 
     // MAYO_DEMO=<step>[,<step>...] drives the window for screenshots and smoke tests. Steps: list, columns,
-    // select:<name>, quicklook[:name], info[:name], menu[:name], rename[:name], search:<query>, size:<points>,
+    // select:<name>, quicklook[:name], info[:name], openwith[:name], submenu:<row>, choose:<app id>, perms:<owner|group|others>:<rw|r|none>,
+    // menu[:name], rename[:name], search:<query>, size:<points>,
     // goto, open:<name>, back, up, newfolder, trash:<name>, undo, duplicate:<name>, copy:<name>, cut:<name>,
     // paste, renameto:<old>=<new>, drop:<item>=<folder>, hidden, type:<letters>, settings, closesettings,
     // wait:<seconds>.
@@ -1232,6 +1372,53 @@ int main(int argc, char** argv) {
                     if (auto* v = currentView()) {
                         const Rect r = v->frame();
                         browser->contextMenu(*v, {r.x + 140, r.y + 150}, !arg.empty());
+                    }
+                } else if (what == "openwith") {
+                    // The "打开方式" panel for an item (no application is started in demo mode).
+                    if (!arg.empty()) {
+                        if (const auto* found = browser->find(arg)) {
+                            showOpenWith(*found);
+                        } else {
+                            for (const auto& item : browser->entries) {
+                                if (item.name == arg) {
+                                    showOpenWith(item);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else if (what == "clickrow") {
+                    // Clicks the context menu's row `arg` (e.g. "打开方式"), as a pointer would.
+                    app.after(0.15, [&, arg] {
+                        const auto& items = menu->items();
+                        for (size_t i = 0; i < items.size(); ++i) {
+                            if (items[i].title == arg) {
+                                menu->setHighlighted(static_cast<int>(i));
+                                break;
+                            }
+                        }
+                    });
+                } else if (what == "submenu") {
+                    // Highlights the context menu's row `arg` (0-based) so its submenu opens beside it.
+                    app.after(0.1, [&, arg] { menu->setHighlighted(std::atoi(arg.c_str())); });
+                } else if (what == "perms") {
+                    // perms:owner=rw — a demo of the permission editor's effect (chmod on the scratch folder).
+                    const auto eq = arg.find('=');
+                    const std::string who = arg.substr(0, eq);
+                    const std::string access = arg.substr(eq + 1);
+                    if (who.empty() || browser->selection.empty()) return;
+                    if (const auto target = statEntry(*browser->selection.begin())) {
+                        const int index = who == "owner" ? 0 : who == "group" ? 1 : 2;
+                        const unsigned bits = 1u << (8 - index * 3);
+                        const unsigned write = 1u << (7 - index * 3);
+                        unsigned flags = target->mode & ~(bits | write);
+                        if (access == "rw") flags |= bits | write;
+                        else if (access == "r") flags |= bits;
+                        if (::chmod(target->path.c_str(), flags) != 0) {
+                            showAlert("无法更改权限。", std::strerror(errno));
+                        } else {
+                            reload();
+                        }
                     }
                 } else if (what == "search") {
                     searchField.setText(arg);

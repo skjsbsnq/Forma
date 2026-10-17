@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "mayonnaise/widget.hpp"
 
 #include <algorithm>
@@ -267,7 +268,7 @@ void Widget::setOpacity(float opacity) {
     m_opacity = opacity;
     invalidate();
 }
-void Widget::setTooltip(std::string text) { m_tooltip = std::move(text); }
+void Widget::setTooltip(std::string text) { m_tooltip = uiText(text); }
 
 CursorShape Widget::cursor() const {
     for (const Widget* w = this; w; w = w->m_parent) {

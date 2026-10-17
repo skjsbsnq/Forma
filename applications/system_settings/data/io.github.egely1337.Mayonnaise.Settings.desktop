@@ -1,10 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Mayo Settings
+Name=Forma Settings
+Name[zh_CN]=Forma 系统设置
 GenericName=System Settings
 Comment=Change your desktop, network, display, sound and other settings
-Exec=systemsettings
-Icon=io.github.egely1337.Mayonnaise.Settings
+Exec=forma-settings
+Icon=forma-settings
 Terminal=false
 StartupNotify=true
 Categories=Settings;DesktopSettings;

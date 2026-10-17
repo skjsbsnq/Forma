@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -52,9 +53,9 @@ void Window::onFilesDropped(std::function<void(const std::vector<std::string>&)>
 }
 
 void Window::setTitle(const std::string& title) {
-    m_impl->title = title;
-    m_impl->platformWindow->setTitle(title);
-    m_impl->root->setTitle(title);
+    m_impl->title = uiText(title);
+    m_impl->platformWindow->setTitle(uiText(title));
+    m_impl->root->setTitle(uiText(title));
 }
 const std::string& Window::title() const { return m_impl->title; }
 Size Window::size() const { return m_impl->platformWindow->sizeInPoints(); }

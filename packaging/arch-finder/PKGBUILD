@@ -1,0 +1,30 @@
+# Build the current local Forma source, including uncommitted changes.
+pkgname=forma-finder
+pkgver=0.1.0
+pkgrel=9
+pkgdesc='Forma Finder file manager with a custom Forma icon'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme xdg-utils)
+makedepends=(cmake pkgconf vulkan-headers shaderc)
+optdepends=('vulkan-icd-loader: Vulkan rendering' 'zenity: fallback file dialogs')
+provides=(mayo-finder-git)
+conflicts=(mayo-finder-git)
+options=(!debug)
+source=()
+sha256sums=()
+
+build() {
+  cmake -S "$startdir/../.." -B "$srcdir/build" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "$srcdir/build" --target finder -j"$(nproc)"
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install "$srcdir/build" --component finder
+  install -Dm644 "$startdir/../../applications/finder/data/io.github.egely1337.Mayonnaise.Finder.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/forma-finder.svg"
+  install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+}

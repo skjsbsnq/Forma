@@ -8,6 +8,7 @@
 //
 // Space / K play-pause · ← → seek 5 s · J L seek 10 s · ↑ ↓ volume · M mute · F full screen · Esc library ·
 // C subtitles on/off · V next subtitle track · G / H subtitle delay −/+ 0.1 s · Ctrl+O open · Ctrl+F search.
+#include "../common/zh_cn.hpp"
 #include <mayonnaise/mayonnaise.hpp>
 
 #include <spawn.h>
@@ -406,10 +407,11 @@ public:
 }  // namespace
 
 int main(int argc, char** argv) {
+    mayo::setUiTranslator(forma::zhCN);
     App app("video_player", MAYO_DESKTOP_ID);
     app.setDefaultAppearanceMode(AppearanceMode::Dark);  // a media app: dark chrome reads best around video
     auto& window = app.createWindow(
-        {.title = "Video Player", .width = 1100, .height = 700, .minWidth = 560, .minHeight = 380, .autosaveName = "main"});
+        {.title = "视频", .width = 1100, .height = 700, .minWidth = 560, .minHeight = 380, .autosaveName = "main"});
     window.setTitleVisible(false);
     Settings& prefs = app.settings();
     const bool demo = std::getenv("MAYO_DEMO") != nullptr;

@@ -28,3 +28,6 @@ add_subdirectory(terminal)
 add_subdirectory(system_settings)
 add_subdirectory(calculator)
 add_subdirectory(music)
+
+add_subdirectory(mail)
+add_subdirectory(text_editor)

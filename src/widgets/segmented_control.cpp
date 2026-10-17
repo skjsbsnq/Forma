@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "mayonnaise/widgets/segmented_control.hpp"
 
 #include <cmath>
@@ -14,7 +15,9 @@ constexpr float kSegPad = 14;
 }  // namespace
 
 SegmentedControlView::SegmentedControlView(std::vector<Segment> segments, int selected)
-    : m_segments(std::move(segments)), m_selected(selected), m_knob(static_cast<float>(selected)) {}
+    : m_segments(std::move(segments)), m_selected(selected), m_knob(static_cast<float>(selected)) {
+    for (auto& segment : m_segments) segment.title = uiText(segment.title);
+}
 
 void SegmentedControlView::setSelected(int index, bool notify) {
     if (m_segments.empty()) return;

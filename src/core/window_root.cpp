@@ -1,3 +1,4 @@
+#include "mayonnaise/ui_translation.hpp"
 #include "window_root.hpp"
 
 #include <algorithm>
@@ -201,7 +202,7 @@ void WindowRootView::setToolbar(std::shared_ptr<Widget> toolbar) {
 }
 
 void WindowRootView::setTitle(const std::string& title) {
-    m_titleBar->title = title;
+    m_titleBar->title = uiText(title);
     invalidateLayout();
 }
 
