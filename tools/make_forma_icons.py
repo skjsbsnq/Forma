@@ -174,8 +174,29 @@ text_body='''<rect x="132" y="110" width="242" height="296" rx="30" fill="#253B6
 </g>'''
 icons['text_editor']=icon('Forma Text Editor',('#CEE9FF','#72A9E7'),text_body,text_defs)
 
+store_defs=r"""<linearGradient id="bagBody" x1="150" y1="240" x2="360" y2="404" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset=".55" stop-color="#EDF7FF"/><stop offset="1" stop-color="#BFE0FF"/></linearGradient>
+<linearGradient id="bagHandle" x1="190" y1="170" x2="322" y2="258" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#CFE8FF"/></linearGradient>
+<linearGradient id="installArrow" x1="256" y1="272" x2="256" y2="372" gradientUnits="userSpaceOnUse"><stop stop-color="#2E9BFF"/><stop offset="1" stop-color="#0757C4"/></linearGradient>"""
+store_body=r"""<path d="M188 258V226Q188 166 256 166Q324 166 324 226V258" fill="none" stroke="#0A4E9E" stroke-opacity=".26" stroke-width="26" stroke-linecap="round"/>
+<path d="M188 258V226Q188 166 256 166Q324 166 324 226V258" fill="none" stroke="url(#bagHandle)" stroke-width="21" stroke-linecap="round"/>
+<rect x="140" y="238" width="232" height="178" rx="52" fill="#06327A" opacity=".26" filter="url(#shadow)" transform="translate(0 16)"/>
+<rect x="136" y="226" width="240" height="182" rx="50" fill="url(#bagBody)" stroke="#FFFFFF" stroke-opacity=".9" stroke-width="3"/>
+<path d="M166 250Q166 236 180 236H332" stroke="white" stroke-opacity=".85" stroke-width="4" stroke-linecap="round"/>
+<path d="M256 266V352M226 324L256 356L286 324" stroke="#0A4E9E" stroke-opacity=".22" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M256 266V352M226 324L256 356L286 324" stroke="url(#installArrow)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M166 384H346" stroke="#5FA5E8" stroke-opacity=".28" stroke-width="2" stroke-linecap="round"/>"""
+icons['app_store']=icon('Forma App Store',('#7FD4FF','#0A67D6'),store_body,store_defs)
+
 for folder,svg in icons.items():
     if len(sys.argv) > 1 and folder not in sys.argv[1:]:
         continue
-    target=next((ROOT/'applications'/folder/'data').glob('*.svg'))
+    data=ROOT/'applications'/folder/'data'
+    existing=list(data.glob('*.svg')) if data.is_dir() else []
+    if not existing:
+        # New apps name their icon after their desktop id.
+        desktop_ids={'app_store':'io.github.skjsbsnq.Forma.AppStore'}
+        target=data/desktop_ids.get(folder, folder+'.svg')
+    else:
+        target=existing[0]
+    data.mkdir(parents=True, exist_ok=True)
     target.write_text(svg+'\n')

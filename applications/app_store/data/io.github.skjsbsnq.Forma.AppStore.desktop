@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Forma App Store
+Name[zh_CN]=Forma 应用商店
+GenericName=App Store
+GenericName[zh_CN]=应用商店
+Comment=Browse and install Flatpak applications
+Comment[zh_CN]=浏览与安装 Flatpak 应用
+Exec=forma-app-store %u
+TryExec=forma-app-store
+Icon=io.github.skjsbsnq.Forma.AppStore
+Terminal=false
+StartupNotify=true
+Categories=System;PackageManager;Utility;
+Keywords=store;apps;flatpak;software;install;应用商店;软件;应用;
+MimeType=x-scheme-handler/appstream;
+StartupWMClass=io.github.skjsbsnq.Forma.AppStore

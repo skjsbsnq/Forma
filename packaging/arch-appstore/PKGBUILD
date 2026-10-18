@@ -1,0 +1,27 @@
+# Build the current local Forma source, including uncommitted changes.
+pkgname=forma-appstore
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Forma App Store for Flatpak with a macOS 26 App Store layout'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme curl flatpak)
+makedepends=(cmake pkgconf vulkan-headers shaderc)
+optdepends=('vulkan-icd-loader: Vulkan rendering' 'noto-fonts-cjk: Chinese text rendering')
+options=(!debug)
+source=()
+sha256sums=()
+
+build() {
+  cmake -S "$startdir/../.." -B "$srcdir/build" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "$srcdir/build" --target forma-app-store -j"$(nproc)"
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install "$srcdir/build" --component forma-app-store
+  install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+}

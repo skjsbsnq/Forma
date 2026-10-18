@@ -40,6 +40,19 @@ mayonnaise_set_warnings(text_editor_tests)
 mayonnaise_set_sanitizers(text_editor_tests)
 add_test(NAME text_editor_tests COMMAND text_editor_tests)
 
+# App Store catalogue parsing and search run without a display server.
+if(TARGET forma-app-store)
+  add_executable(forma_store_tests ${PROJECT_SOURCE_DIR}/applications/app_store/tests/catalog_tests.cpp
+                 ${PROJECT_SOURCE_DIR}/applications/app_store/catalog.cpp
+                 ${PROJECT_SOURCE_DIR}/applications/app_store/json_lite.cpp)
+  target_link_libraries(forma_store_tests PRIVATE mayonnaise::mayonnaise doctest::doctest)
+  target_include_directories(forma_store_tests PRIVATE ${PROJECT_SOURCE_DIR}/applications/app_store
+                             ${PROJECT_SOURCE_DIR}/include)
+  mayonnaise_set_warnings(forma_store_tests)
+  mayonnaise_set_sanitizers(forma_store_tests)
+  add_test(NAME forma_store_tests COMMAND forma_store_tests)
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_executable(finder_open_tests test_finder_open.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/applications.cpp

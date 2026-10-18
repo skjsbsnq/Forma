@@ -31,4 +31,5 @@ add_subdirectory(music)
 
 add_subdirectory(mail)
 add_subdirectory(text_editor)
+add_subdirectory(app_store)
 add_subdirectory(portal)

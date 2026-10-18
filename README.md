@@ -52,6 +52,16 @@ Forma 基于 [Mayonnaise](https://github.com/egely1337/mayonnaise) UI 框架，�
 
 邮件目前是候选版：Google / Microsoft OAuth 应用注册与真实服务商验收尚未完成。请阅读 [邮件说明](applications/mail/README.md) 和 [OAuth 配置说明](applications/mail/OAUTH_SETUP.md)。系统设置的实际能力取决于当前桌面及已安装服务。
 
+### 应用商店
+
+Forma 应用商店面向 Flatpak，界面以 macOS 26 Tahoe 的 App Store 为基准：浮动玻璃侧边栏、今日应用横幅、编辑精选卡片、图标网格与完整应用详情页。目录来自本机 AppStream 缓存，可离线浏览 3000+ 个应用；安装与更新通过 flatpak 执行并显示实时进度。
+
+| 精选 | 应用详情 |
+| --- | --- |
+| ![应用商店](docs/screenshots/forma-store-home.png) | ![应用详情](docs/screenshots/forma-store-app.png) |
+
+[应用商店说明](applications/app_store/README.md)
+
 ### 任务管理器与照片
 
 任务管理器显示进程及系统资源；照片应用支持图片导入、缩略图浏览和查看。
@@ -80,7 +90,7 @@ cmake --build build -j4
 ctest --test-dir build --output-on-failure
 ```
 
-邮件应用需要 libcurl、libsecret 和 json-glib；音视频应用需要 FFmpeg；系统设置需要 GIO。字体跟随系统回退，中文推荐安装 `noto-fonts-cjk`。
+应用商店需要 libcurl 与 flatpak；邮件应用需要 libcurl、libsecret 和 json-glib；音视频应用需要 FFmpeg；系统设置需要 GIO。字体跟随系统回退，中文推荐安装 `noto-fonts-cjk`。
 
 | 应用 | 运行命令 |
 | --- | --- |
@@ -94,6 +104,7 @@ ctest --test-dir build --output-on-failure
 | 视频播放器 | `./build/applications/video_player/video_player` |
 | 音乐播放器 | `./build/applications/music/music` |
 | 计算器 | `./build/applications/calculator/calculator` |
+| 应用商店 | `./build/applications/app_store/forma-app-store` |
 
 应用配置默认保存在 `~/.config/mayonnaise/` 对应子目录。可通过 `XDG_CONFIG_HOME` 使用独立配置。
 
@@ -116,6 +127,7 @@ makepkg -si
 | `packaging/arch-taskmanager` | 任务管理器 |
 | `packaging/arch-suite` | 终端、系统设置 |
 | `packaging/arch-media` | 照片、视频播放器 |
+| `packaging/arch-appstore` | 应用商店 |
 
 更新文件管理器（当前打包版本 `0.1.0-10`）可在仓库根目录执行；`-f` 会重新构建已有的同版本安装包：
 
