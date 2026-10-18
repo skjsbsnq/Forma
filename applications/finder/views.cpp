@@ -742,6 +742,7 @@ ColumnBrowserView::Column ColumnBrowserView::columnFor(const std::string& folder
     Column col;
     col.list = std::make_shared<ColumnListView>(m_browser, folder);
     col.scroll = std::make_shared<ScrollViewView>(col.list);
+    col.scroll->setScrollEdge(ScrollEdgeStyle::Soft, theme().metrics.spacingLarge);
     col.list->setScroller(col.scroll.get());
     m_cache[folder] = col;
     return col;

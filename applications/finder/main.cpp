@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
     auto columns = std::make_shared<ListColumns>();
     auto listHeader = std::make_shared<ListHeaderView>(browser, columns);
     auto listRows = std::make_shared<ListRowsView>(browser, columns);
-    auto listScroll = ScrollView(Element(listRows));
+    auto listScroll = ScrollView(Element(listRows)).scrollEdge(ScrollEdgeStyle::Soft, theme().metrics.spacingLarge);
     listRows->setScroller(listScroll.node().get());
     listHeader->onColumnsResized = [&] {
         listRows->invalidate();
@@ -238,7 +238,7 @@ int main(int argc, char** argv) {
     auto viewControl = SegmentedControl({Icon::Grid, Icon::List, Icon::Columns}, 0);
     viewControl.tooltip("视图（Ctrl+1、Ctrl+2、Ctrl+3）");
     auto actionMenu = Menu("", {}).icon(Icon::Ellipsis).borderless().tooltip("操作");
-    auto searchField = SearchField("搜索").width(190);
+    auto searchField = SearchField("搜索").width(170);
     auto emptyTrashButton = Button("清空").tooltip("清空回收站（Ctrl+Shift+Delete）");
 
     auto quickLook = std::make_shared<QuickLookView>(browser);
@@ -1207,7 +1207,7 @@ int main(int argc, char** argv) {
     backButton.onClick(goBack);
     forwardButton.onClick(goForward);
     viewControl.onChange([&](int i) { setMode(static_cast<ViewMode>(i)); });
-    window.setToolbar(Toolbar({
+    auto toolbar = Toolbar({
         ToolbarGroup({backButton, forwardButton}),
         titleLabel,
         Spacer(),
@@ -1215,7 +1215,8 @@ int main(int argc, char** argv) {
         viewControl,
         ToolbarGroup({actionMenu}),
         searchField,
-    }));
+    });
+    window.setToolbar(toolbar);
 
     // Keyboard ------------------------------------------------------------------------------------------------
     window.onKey([&](const KeyEvent& e) {
@@ -1331,7 +1332,7 @@ int main(int argc, char** argv) {
 
     // MAYO_DEMO=<step>[,<step>...] drives the window for screenshots and smoke tests. Steps: list, columns,
     // select:<name>, quicklook[:name], info[:name], openwith[:name], submenu:<row>, choose:<app id>, perms:<owner|group|others>:<rw|r|none>,
-    // menu[:name], rename[:name], search:<query>, size:<points>,
+    // menu[:name], rename[:name], search:<query>, size:<points>, narrow, scroll:<points>, overflow,
     // goto, open:<name>, back, up, newfolder, trash:<name>, undo, duplicate:<name>, copy:<name>, cut:<name>,
     // paste, renameto:<old>=<new>, drop:<item>=<folder>, hidden, type:<letters>, settings, closesettings,
     // wait:<seconds>.
@@ -1355,7 +1356,18 @@ int main(int argc, char** argv) {
             const std::string arg = colon == std::string::npos ? std::string() : step.substr(colon + 1);
             app.after(at, [&, what, arg, selectNamed] {
                 if (what == "list") setMode(ViewMode::List);
-                else if (what == "columns") setMode(ViewMode::Columns);
+                else if (what == "narrow") window.setSize({680, 600});
+                else if (what == "scroll") {
+                    const float offset = static_cast<float>(std::atof(arg.c_str()));
+                    if (mode == ViewMode::Icons) iconScroll.scrollTo({0, offset}, false);
+                    else if (mode == ViewMode::List) listScroll.scrollTo({0, offset}, false);
+                    else columnScroll.scrollTo({offset, 0}, false);
+                } else if (what == "overflow") {
+                    for (const auto& child : toolbar.node()->children()) {
+                        if (auto button = std::dynamic_pointer_cast<ButtonView>(child);
+                            button && button->icon() == Icon::Ellipsis && button->isVisible()) button->click();
+                    }
+                } else if (what == "columns") setMode(ViewMode::Columns);
                 else if (what == "select") selectNamed(arg);
                 else if (what == "size") browser->resizeIcons(static_cast<float>(std::atof(arg.c_str())));
                 else if (what == "quicklook") {

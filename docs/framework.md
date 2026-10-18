@@ -391,7 +391,7 @@ content continues beyond the viewport. `Hard` draws frosted edges; `None` is the
 default. The optional second argument controls edge height in points. Edges stay
 inside the viewport, beneath the overlay scrollbars, and do not intercept input.
 Custom containers may call `Painter::drawScrollEdge` after painting their content.
-The Mail message list and reader use soft edges.
+The Mail message list and reader, and Finder's list and browser columns, use soft edges.
 
 Toolbars automatically move trailing named actions into a more-actions menu when
 space runs out. Buttons, menus, toggles, pickers and text-labelled segments retain
@@ -419,6 +419,18 @@ edges and a resizable toolbar. It supports `MAYO_APPEARANCE`, `MAYO_SCALE`,
 | ![Forma component gallery, light](screenshots/forma-components-light.png) | ![Forma component gallery, dark](screenshots/forma-components-dark.png) |
 
 [Narrow toolbar with overflow menu](screenshots/forma-components-overflow.png).
+
+Finder uses the same materials and overflow behavior. Reproduce its scrolling and
+narrow-window preview against a scratch folder (demo file operations act on real files):
+
+```sh
+MAYO_DEMO=list,scroll:140,narrow,overflow MAYO_SCREENSHOT_DELAY=1.2 \
+  MAYO_SCREENSHOT=/tmp/finder-effects.png ./build/applications/finder/finder /path/to/scratch-folder
+```
+
+[Finder light](screenshots/finder-effects-light.png) ·
+[Finder dark](screenshots/finder-effects-dark.png) ·
+[Finder overflow](screenshots/finder-effects-overflow.png).
 
 ## Licensing notes
 

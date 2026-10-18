@@ -1,11 +1,11 @@
 # Build the current local Forma source, including uncommitted changes.
 pkgname=forma-finder
 pkgver=0.1.0
-pkgrel=10
+pkgrel=11
 pkgdesc='Forma Finder file manager with a custom Forma icon'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'
-license=(GPL-3.0-only OFL-1.1)
+license=(GPL-3.0-only OFL-1.1 MIT)
 depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme xdg-utils)
 makedepends=(cmake pkgconf vulkan-headers shaderc)
 optdepends=('vulkan-icd-loader: Vulkan rendering' 'zenity: fallback file dialogs')
@@ -19,7 +19,7 @@ build() {
   cmake -S "$startdir/../.." -B "$srcdir/build" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
     -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
-  cmake --build "$srcdir/build" --target finder -j"$(nproc)"
+  cmake --build "$srcdir/build" --target finder -j"${FORMA_BUILD_JOBS:-$(nproc)}"
 }
 
 package() {
