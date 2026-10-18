@@ -143,7 +143,7 @@ void ToolbarView::updateOverflow(Size available) {
     if (!m_more) {
         m_more = std::make_shared<ButtonView>(std::string{});
         m_more->setIcon(Icon::Ellipsis);
-        m_more->setStyle(ButtonStyle::Borderless);
+        m_more->setStyle(ButtonStyle::Glass);
         m_more->setTooltip("更多操作");
         const auto weak = weak_from_this();
         m_more->setOnClick([weak] {
@@ -300,7 +300,7 @@ void ToolbarGroupView::draw(Painter& p) {
     const Theme& t = theme();
     Rect r = frame();
     float radius = r.height * 0.5f;
-    p.drawShadow(r, radius, t.colors.shadow.multipliedAlpha(t.isDark() ? 0.6f : 0.35f), 10, {0, 2});
+    p.drawShadow(r, radius, t.colors.shadow.multipliedAlpha(t.isDark() ? 0.8f : 0.65f), 14, {0, 3});
     p.drawMaterial(r, radius, Material::Glass);
     paintChildren(p);
 }

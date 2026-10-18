@@ -236,6 +236,7 @@ int main(int argc, char** argv) {
     auto forwardButton = Button(Icon::ChevronRight).style(ButtonStyle::Borderless).tooltip("前进（Alt+→）");
     auto titleLabel = Label("").font(TextStyle::Title3).lineLimit(1).maxWidth(320);
     auto viewControl = SegmentedControl({Icon::Grid, Icon::List, Icon::Columns}, 0);
+    viewControl.background(Material::Glass).cornerRadius(theme().metrics.controlHeight * 0.5f);
     viewControl.tooltip("视图（Ctrl+1、Ctrl+2、Ctrl+3）");
     auto actionMenu = Menu("", {}).icon(Icon::Ellipsis).borderless().tooltip("操作");
     auto searchField = SearchField("搜索").width(170);

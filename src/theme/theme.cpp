@@ -54,8 +54,16 @@ MaterialStyle Theme::material(Material m) const {
     s.border = dark ? Color::white(0.10f) : Color::black(0.07f);
     switch (m) {
         case Material::Sidebar:
-            s.blurRadius = 30;
-            s.tint = dark ? Color::rgb8(44, 44, 48, 0.62f) : Color::rgb8(246, 246, 250, 0.62f);
+            s.blurRadius = 14;
+            s.tint = dark ? Color::rgb8(26, 28, 34, 0.18f) : Color::rgb8(246, 249, 255, 0.22f);
+            s.saturation = 1.55f;
+            s.bezelWidth = 22;
+            s.refraction = 24;
+            s.rimStrength = dark ? 0.58f : 0.68f;
+            s.toneLow = dark ? 0.06f : 0.40f;
+            s.toneHigh = dark ? 0.34f : 1.0f;
+            s.highlight = Color::transparent();
+            s.border = dark ? Color::white(0.22f) : Color::white(0.65f);
             break;
         case Material::Titlebar:
             s.blurRadius = 20;
@@ -64,25 +72,31 @@ MaterialStyle Theme::material(Material m) const {
             s.border = Color::transparent();
             break;
         case Material::Popover:
-            s.blurRadius = 30;
-            s.tint = dark ? Color::rgb8(46, 46, 50, 0.80f) : Color::rgb8(248, 248, 250, 0.80f);
-            break;
         case Material::Menu:
-            s.blurRadius = 30;
-            s.tint = dark ? Color::rgb8(40, 40, 44, 0.74f) : Color::rgb8(244, 244, 246, 0.74f);
+            s.blurRadius = 8;
+            s.tint = dark ? Color::rgb8(24, 26, 32, 0.16f) : Color::rgb8(250, 252, 255, 0.18f);
+            s.saturation = 1.5f;
+            s.bezelWidth = 18;
+            s.refraction = 22;
+            s.rimStrength = dark ? 0.58f : 0.68f;
+            s.toneLow = dark ? 0.08f : 0.56f;
+            s.toneHigh = dark ? 0.36f : 1.0f;
+            s.highlight = Color::transparent();
+            s.border = dark ? Color::white(0.24f) : Color::white(0.72f);
             break;
         case Material::Glass:
         case Material::GlassClear:
-            s.blurRadius = m == Material::GlassClear ? 1.5f : 8.0f;
-            s.saturation = 1.15f;
-            s.tint = dark ? Color::white(0.04f) : Color::white(0.08f);
+            s.blurRadius = m == Material::GlassClear ? 1.5f : 3.5f;
+            s.saturation = 1.6f;
+            s.tint = dark ? Color::white(0.025f) : Color::white(0.04f);
             s.highlight = Color::transparent();
-            s.bezelWidth = 12;
-            s.refraction = 8;
-            s.rimStrength = dark ? 0.22f : 0.32f;
+            s.bezelWidth = 18;
+            s.refraction = 22;
+            s.rimStrength = dark ? 0.62f : 0.76f;
+            s.border = dark ? Color::white(0.25f) : Color::white(0.78f);
             if (m == Material::Glass) {
-                s.toneLow = dark ? 0.10f : 0.50f;
-                s.toneHigh = dark ? 0.48f : 1.0f;
+                s.toneLow = dark ? 0.07f : 0.30f;
+                s.toneHigh = dark ? 0.40f : 1.0f;
             } else {
                 s.toneLow = dark ? 0.02f : 0.08f;
                 s.toneHigh = dark ? 0.92f : 1.0f;

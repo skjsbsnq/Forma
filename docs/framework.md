@@ -386,6 +386,12 @@ Materials sample content already drawn inside the window; they do not blur other
 windows or the desktop wallpaper. The new `MaterialStyle` lens and tone fields
 default to a flat, identity mapping for existing custom materials.
 
+The glass presets use a broad reflective shoulder, a bright rim and a shallow
+inner shadow so their thickness remains visible on plain backgrounds. Sidebar,
+menu and popover materials use the same lens treatment with stronger frosting
+and a constrained tone range for readable labels. Finder's view switcher and
+the toolbar overflow button also use glass.
+
 `ScrollView(content).scrollEdge(ScrollEdgeStyle::Soft)` adds a fading edge where
 content continues beyond the viewport. `Hard` draws frosted edges; `None` is the
 default. The optional second argument controls edge height in points. Edges stay

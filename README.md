@@ -138,7 +138,7 @@ makepkg -si
 | `packaging/arch-media` | 照片、视频播放器 |
 | `packaging/arch-appstore` | 应用商店 |
 
-更新文件管理器（当前打包版本 `0.1.0-11`）可在仓库根目录执行；`-f` 会重新构建已有的同版本安装包：
+更新文件管理器（当前打包版本 `0.1.0-12`）可在仓库根目录执行；`-f` 会重新构建已有的同版本安装包：
 
 ```sh
 git pull --ff-only origin master
