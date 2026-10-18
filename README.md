@@ -110,6 +110,7 @@ makepkg -si
 | 打包目录 | 应用 |
 | --- | --- |
 | `packaging/arch-texteditor` | 文本编辑器 |
+| `packaging/arch-portal` | Forma 桌面门户（替换官方 KDE 门户包） |
 | `packaging/arch-finder` | 文件管理器 |
 | `packaging/arch-mail` | 邮件 |
 | `packaging/arch-taskmanager` | 任务管理器 |
@@ -131,6 +132,10 @@ ctest --test-dir build -R finder_open_tests --output-on-failure
 ```
 
 源码仓库不保存构建目录或 `.pkg.tar.zst` 安装包。安装包可在本机构建；这些配方尚未发布到 AUR。`packaging/arch` 保留上游 Mayonnaise 的 Git 分包方案，与 Forma 本地源码配方不同。
+
+## Forma 桌面门户（开发中）
+
+保留 KDE 门户服务，统一文件选择、打开方式、授权、屏幕共享、打印等门户窗口的 Forma 外观。文件窗口复用 Forma 文件管理器组件，其他窗口保留原有交互并接入私有 Forma 样式。提供独立预览与隔离测试，暂未自动替换系统服务。参见 [构建与试用](integrations/kde/README.md) 和 [界面覆盖范围](integrations/kde/STYLE_COVERAGE.md)。
 
 ## UI 框架与开发
 

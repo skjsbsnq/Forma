@@ -1,0 +1,3 @@
+[submodule "integrations/xdg-desktop-portal-kde"]
+	path = integrations/xdg-desktop-portal-kde
+	url = https://github.com/KDE/xdg-desktop-portal-kde.git

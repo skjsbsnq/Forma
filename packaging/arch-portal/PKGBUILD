@@ -1,0 +1,79 @@
+# Builds the local Forma checkout, including its uncommitted UI changes.
+pkgname=xdg-desktop-portal-forma
+pkgver=6.8.0
+pkgrel=1
+pkgdesc='Forma desktop portal interfaces with the KDE portal backend'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(LGPL-2.0-or-later GPL-3.0-only OFL-1.1)
+depends=(
+  glibc gcc-libs sdl3 freetype2 fontconfig libglvnd dbus hicolor-icon-theme xdg-utils
+  kcmutils kconfig kcoreaddons kcrash kdeclarative kglobalaccel kiconthemes ki18n
+  'kio>=6.31.0' kio-fuse kirigami kirigami-addons kitemviews knotifications
+  'kpipewire>=6.8.0' kservice kstatusnotifieritem 'kwayland>=6.8.0' kwindowsystem
+  libxkbcommon plasma-workspace 'qt6-base>=6.12.0' 'qt6-declarative>=6.12.0'
+  wayland xdg-desktop-portal
+)
+makedepends=(cmake extra-cmake-modules ninja pkgconf gettext git
+  plasma-wayland-protocols wayland-protocols vulkan-headers shaderc)
+checkdepends=(python)
+optdepends=('vulkan-icd-loader: Vulkan rendering for the Forma file picker'
+            'noto-fonts-cjk: Chinese font fallback')
+provides=("xdg-desktop-portal-kde=$pkgver" xdg-desktop-portal-impl)
+conflicts=(xdg-desktop-portal-kde)
+options=(!debug !lto)
+source=()
+sha256sums=()
+
+prepare() {
+  local root="$startdir/../.."
+  if [[ ! -f "$root/integrations/xdg-desktop-portal-kde/CMakeLists.txt" ]]; then
+    error 'Initialize the KDE submodule: git submodule update --init integrations/xdg-desktop-portal-kde'
+    return 1
+  fi
+  "$root/integrations/kde/prepare.sh"
+}
+
+build() {
+  local root="$startdir/../.."
+  local jobs="${FORMA_BUILD_JOBS:-4}"
+  cmake -S "$root" -B "$srcdir/build-forma" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "$srcdir/build-forma" --target forma-file-picker --parallel "$jobs"
+  cmake -S "$root/integrations/xdg-desktop-portal-kde" -B "$srcdir/build-kde" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBEXECDIR=lib -DBUILD_TESTING=OFF
+  # Also build the translation catalogs required by install().
+  cmake --build "$srcdir/build-kde" --parallel "$jobs"
+  cmake --build "$srcdir/build-kde" --target forma-portal-preview --parallel "$jobs"
+}
+
+check() {
+  local root="$startdir/../.."
+  python "$root/tests/portal/style_smoke.py" "$srcdir/build-kde/bin/forma-portal-preview"
+  dbus-run-session -- python "$root/tests/portal/backend_smoke.py" \
+    "$srcdir/build-kde/bin/xdg-desktop-portal-kde"
+}
+
+package() {
+  local root="$startdir/../.."
+  DESTDIR="$pkgdir" cmake --install "$srcdir/build-forma" --component forma-file-picker
+  DESTDIR="$pkgdir" cmake --install "$srcdir/build-kde"
+  install -Dm755 "$startdir/xdg-desktop-portal-forma" "$pkgdir/usr/lib/xdg-desktop-portal-forma"
+  # Keep desktop Exec tied to the real binary for KWin interface identity checks.
+  local file
+  for file in \
+    usr/lib/systemd/user/plasma-xdg-desktop-portal-kde.service \
+    usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.kde.service; do
+    sed -i 's@^ExecStart=/usr/lib/xdg-desktop-portal-kde@ExecStart=/usr/lib/xdg-desktop-portal-forma@;
+            s@^Exec=/usr/lib/xdg-desktop-portal-kde@Exec=/usr/lib/xdg-desktop-portal-forma@' "$pkgdir/$file"
+  done
+  install -Dm644 "$root/LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Forma-GPL-3.0.txt"
+  install -Dm644 "$root/assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+  for file in "$root"/integrations/xdg-desktop-portal-kde/LICENSES/*; do
+    install -Dm644 "$file" "$pkgdir/usr/share/licenses/$pkgname/KDE/$(basename "$file")"
+  done
+  install -Dm644 "$startdir/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$root/integrations/kde/STYLE_COVERAGE.md" "$pkgdir/usr/share/doc/$pkgname/STYLE_COVERAGE.md"
+}

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Shared entry point for systemd and direct D-Bus activation.
+export FORMA_PORTAL_PICKER=/usr/bin/forma-file-picker
+exec /usr/lib/xdg-desktop-portal-kde "$@"

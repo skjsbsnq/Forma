@@ -1,0 +1,345 @@
+diff --git a/src/AccessDialog.qml b/src/AccessDialog.qml
+index 06c6bce..4664e54 100644
+--- a/src/AccessDialog.qml
++++ b/src/AccessDialog.qml
+@@ -68,10 +68,10 @@ PortalDialog {
+ 
+     Component.onCompleted: {
+         if (root.acceptLabel.length > 0) {
+-            dialogButtonBox.standardButton(QQC2.DialogButtonBox.Ok).text = Qt.binding(() => root.acceptLabel);
++            acceptButtonText = Qt.binding(() => root.acceptLabel);
+         }
+         if (root.rejectLabel.length > 0) {
+-            dialogButtonBox.standardButton(QQC2.DialogButtonBox.Cancel).text = Qt.binding(() => root.rejectLabel);
++            rejectButtonText = Qt.binding(() => root.rejectLabel);
+         }
+     }
+ }
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index d416948..63e14b9 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -48,6 +48,10 @@ set(xdg_desktop_portal_kde_SRCS
+     desktopportal.h
+     email.cpp
+     email.h
++    formastyle.cpp
++    formastyle.h
++    formafilepicker.cpp
++    formafilepicker.h
+     filechooser.cpp
+     filechooser.h
+     globalshortcuts.cpp globalshortcuts.h
+@@ -337,6 +341,7 @@ PUBLIC
+     Qt::DBus
+     Qt::Concurrent
+     Qt::PrintSupport
++    Qt::QuickControls2
+     Qt::QuickWidgets
+     Qt::Widgets
+     Qt::WaylandClient
+@@ -373,3 +378,13 @@ install(FILES
+ 
+ ecm_qt_install_logging_categories(EXPORT XDPKDE FILE xdp-kde.categories DESTINATION ${KDE_INSTALL_LOGGINGCATEGORIESDIR})
+ 
++
++# Forma controls are private resources of this fork, never a global desktop theme.
++file(GLOB FORMA_STYLE_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/forma/Forma/*.qml")
++qt_add_resources(xdg-desktop-portal-kde-internal forma_style
++    PREFIX "/qt/qml" BASE "${CMAKE_CURRENT_SOURCE_DIR}/forma"
++    FILES ${FORMA_STYLE_FILES} forma/Forma/qmldir forma/fonts/InterVariable.ttf forma/fonts/Inter-LICENSE.txt forma/check.svg)
++add_executable(forma-portal-preview EXCLUDE_FROM_ALL formapreview.cpp)
++target_link_libraries(forma-portal-preview PRIVATE xdg-desktop-portal-kde-internal xdg-desktop-portal-kde-internalplugin Qt::Test)
++
++install(FILES forma/fonts/Inter-LICENSE.txt DESTINATION ${KDE_INSTALL_DATADIR}/licenses/xdg-desktop-portal-forma)
+diff --git a/src/DynamicLauncherDialog.qml b/src/DynamicLauncherDialog.qml
+index 068639e..639ae68 100644
+--- a/src/DynamicLauncherDialog.qml
++++ b/src/DynamicLauncherDialog.qml
+@@ -42,8 +42,8 @@ PortalDialog {
+                 visible: text.length > 0
+                 horizontalAlignment: Text.AlignHCenter
+                 elide: Text.ElideMiddle
+-                text: root.dialog.launcherURL
+-                onClicked: Qt.openUrlExternally(root.dialog.launcherURL)
++                text: root.launcherURL
++                onClicked: Qt.openUrlExternally(root.launcherURL)
+             }
+         }
+     }
+diff --git a/src/InputCaptureDialog.qml b/src/InputCaptureDialog.qml
+index b161208..25536f4 100644
+--- a/src/InputCaptureDialog.qml
++++ b/src/InputCaptureDialog.qml
+@@ -33,8 +33,8 @@ PortalDialog {
+     height: contentHeight
+ 
+     Component.onCompleted: {
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Ok).text = KI18n.i18nc("@action:button Allow the application to monitor input", "Allow");
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Cancel).text = KI18n.i18nc("@action:button Deny the application's request to monitor input", "Deny");
++        acceptButtonText = KI18n.i18nc("@action:button Allow the application to monitor input", "Allow");
++        rejectButtonText = KI18n.i18nc("@action:button Deny the application's request to monitor input", "Deny");
+     }
+ }
+ 
+diff --git a/src/PipeWireDelegate.qml b/src/PipeWireDelegate.qml
+index 9d9e6e5..885e843 100644
+--- a/src/PipeWireDelegate.qml
++++ b/src/PipeWireDelegate.qml
+@@ -17,6 +17,14 @@ import org.kde.ki18n
+ Kirigami.AbstractCard {
+     id: root
+ 
++    background: Rectangle {
++        radius: 16
++        color: root.checked ? Qt.alpha(root.palette.highlight, 0.14)
++            : root.hovered ? Qt.alpha(root.palette.text, 0.06) : root.palette.base
++        border.width: root.checked || root.visualFocus ? 2 : 1
++        border.color: root.checked || root.visualFocus ? root.palette.highlight : Qt.alpha(root.palette.text, 0.13)
++    }
++
+     required property string itemName
+     required property var iconSource
+     required property string itemDescription
+@@ -79,7 +87,7 @@ Kirigami.AbstractCard {
+                 id: wallpaperImage
+ 
+                 anchors.fill: parent
+-                radius: Kirigami.Units.cornerRadius
++                radius: 14
+ 
+                 fillMode: Image.PreserveAspectCrop
+                 source: root.backgroundImage
+@@ -228,7 +236,7 @@ Kirigami.AbstractCard {
+                 anchors.centerIn: parent
+                 width: pipeWireSourceItem.paintedRect.width
+                 height: pipeWireSourceItem.paintedRect.height
+-                radius: Kirigami.Units.cornerRadius
++                radius: 14
+                 shadow.size: 2
+                 color: Kirigami.Theme.textColor
+                 border.color: Kirigami.Theme.textColor
+diff --git a/src/RemoteDesktopDialog.qml b/src/RemoteDesktopDialog.qml
+index cbf8833..a6a4bfc 100644
+--- a/src/RemoteDesktopDialog.qml
++++ b/src/RemoteDesktopDialog.qml
+@@ -33,7 +33,7 @@ PortalDialog {
+     }
+ 
+     Component.onCompleted: {
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Ok).text = KI18n.i18nc("@action:button Allow the application to gain extra privileges", "Allow")
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Cancel).text = KI18n.i18nc("@action:button Deny the application gaining extra privileges", "Deny")
++        acceptButtonText = KI18n.i18nc("@action:button Allow the application to gain extra privileges", "Allow")
++        rejectButtonText = KI18n.i18nc("@action:button Deny the application gaining extra privileges", "Deny")
+     }
+ }
+diff --git a/src/ScreenChooserDialog.qml b/src/ScreenChooserDialog.qml
+index 2c1a216..ec4c818 100644
+--- a/src/ScreenChooserDialog.qml
++++ b/src/ScreenChooserDialog.qml
+@@ -196,7 +196,7 @@ ScreenChooserDialogTemplate {
+ 
+     Component.onCompleted: {
+         if (root.multiple) {
+-            dialogButtonBox.standardButton(QQC2.DialogButtonBox.Ok).text = KI18n.i18n("Share")
++            acceptButtonText = KI18n.i18n("Share")
+         }
+ 
+         // If there's only one thing in the list, pre-select it to save the user a click
+diff --git a/src/ScreenshotDialog.qml b/src/ScreenshotDialog.qml
+index 564e5cf..99a3600 100644
+--- a/src/ScreenshotDialog.qml
++++ b/src/ScreenshotDialog.qml
+@@ -27,7 +27,7 @@ PortalDialog {
+     mainText: appName === ""
+         ? KI18n.i18nc("@info", "Allow an unidentifiable application to take a screenshot?")
+         : KI18n.i18nc("@info %1 is the name of an application", "Allow %1 to take a screenshot?", appName)
+-    subtitle: appName === "" ? KI18n.i18nc("@info:usagetip", "Only allow if you know which application made the request.") : undefined
++    subtitle: appName === "" ? KI18n.i18nc("@info:usagetip", "Only allow if you know which application made the request.") : ""
+ 
+     acceptable: screenshot.valid
+ 
+@@ -80,8 +80,8 @@ PortalDialog {
+     }
+ 
+     Component.onCompleted: {
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Ok).text = KI18n.i18nc("@action:button Allow the application to use the screenshot", "Allow")
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Cancel).text = KI18n.i18nc("@action:button Deny the application's request to take a screenshot", "Deny")
++        acceptButtonText = KI18n.i18nc("@action:button Allow the application to use the screenshot", "Allow")
++        rejectButtonText = KI18n.i18nc("@action:button Deny the application's request to take a screenshot", "Deny")
+     }
+ 
+     actions: [
+diff --git a/src/UsbDialog.qml b/src/UsbDialog.qml
+index 503c880..a222768 100644
+--- a/src/UsbDialog.qml
++++ b/src/UsbDialog.qml
+@@ -64,8 +64,8 @@ PortalDialog {
+     }
+ 
+     Component.onCompleted: {
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Ok).text = KI18n.i18nc("@action:button Allow the application to access devices", "Allow")
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Cancel).text = KI18n.i18nc("@action:button Deny the application's request to access devices", "Deny")
++        acceptButtonText = KI18n.i18nc("@action:button Allow the application to access devices", "Allow")
++        rejectButtonText = KI18n.i18nc("@action:button Deny the application's request to access devices", "Deny")
+     }
+ }
+ 
+diff --git a/src/UserInfoDialog.qml b/src/UserInfoDialog.qml
+index c6ee55b..1f9bd5e 100644
+--- a/src/UserInfoDialog.qml
++++ b/src/UserInfoDialog.qml
+@@ -73,6 +73,6 @@ PortalDialog {
+     }
+ 
+     Component.onCompleted: {
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Ok).text = KI18n.i18nc("@action:button", "Share")
++        acceptButtonText = KI18n.i18nc("@action:button", "Share")
+     }
+ }
+diff --git a/src/WallpaperDialog.qml b/src/WallpaperDialog.qml
+index e56d269..5e4b95c 100644
+--- a/src/WallpaperDialog.qml
++++ b/src/WallpaperDialog.qml
+@@ -4,6 +4,7 @@
+ */
+ 
+ import QtQuick
++import QtQuick.Controls as QQC2
+ import org.kde.kirigami as Kirigami
+ import org.kde.xdgdesktopportal
+ import org.kde.ki18n
+@@ -39,7 +40,7 @@ PortalDialog
+             }
+         }
+     }
+-    subtitle: app === "" ? KI18n.i18nc("@info:usagetip", "Only allow if you know which application made the request.") : undefined
++    subtitle: app === "" ? KI18n.i18nc("@info:usagetip", "Only allow if you know which application made the request.") : ""
+ 
+     Item {
+         implicitHeight: Kirigami.Units.gridUnit * 10
+@@ -52,7 +53,7 @@ PortalDialog
+     }
+ 
+     Component.onCompleted: {
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Ok).text = KI18n.i18nc("@action:button Allow the application to change the wallpaper", "Allow")
+-        dialogButtonBox.standardButton(QQC2.DialogButtonBox.Cancel).text = KI18n.i18nc("@action:button Deny the applicatinon's request to change the wallpaper", "Deny")
++        acceptButtonText = KI18n.i18nc("@action:button Allow the application to change the wallpaper", "Allow")
++        rejectButtonText = KI18n.i18nc("@action:button Deny the applicatinon's request to change the wallpaper", "Deny")
+     }
+ }
+diff --git a/src/dynamiclauncherdialog.cpp b/src/dynamiclauncherdialog.cpp
+index 82985e5..2269508 100644
+--- a/src/dynamiclauncherdialog.cpp
++++ b/src/dynamiclauncherdialog.cpp
+@@ -21,8 +21,6 @@ DynamicLauncherDialog::DynamicLauncherDialog(const QString &mainText,
+            {
+                {QStringLiteral("mainText"), mainText},
+                {QStringLiteral("subtitle"), subtitle},
+-               {QStringLiteral("launcherName"), name},
+-               {QStringLiteral("launcherIcon"), icon},
+                {QStringLiteral("launcherURL"), launcherURL},
+                {QStringLiteral("dialog"), QVariant::fromValue(this)},
+            });
+diff --git a/src/filechooser.cpp b/src/filechooser.cpp
+index 25d00aa..20880bf 100644
+--- a/src/filechooser.cpp
++++ b/src/filechooser.cpp
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "filechooser.h"
++#include "formafilepicker.h"
+ #include "filechooser_debug.h"
+ #include "utils.h"
+ 
+@@ -334,6 +335,8 @@ void FileChooserPortal::OpenFile(const QDBusObjectPath &handle,
+                                  uint &replyResponse,
+                                  QVariantMap &replyResults)
+ {
++    if (runFormaFilePicker(handle, app_id, parent_window, title, options, false, replyResponse, replyResults)) return;
++
+     Q_UNUSED(app_id);
+ 
+     qCDebug(XdgDesktopPortalKdeFileChooser) << "OpenFile called with parameters:";
+@@ -517,6 +520,8 @@ void FileChooserPortal::SaveFile(const QDBusObjectPath &handle,
+                                  uint &replyResponse,
+                                  QVariantMap &replyResults)
+ {
++    if (runFormaFilePicker(handle, app_id, parent_window, title, options, true, replyResponse, replyResults)) return;
++
+     Q_UNUSED(app_id);
+ 
+     qCDebug(XdgDesktopPortalKdeFileChooser) << "SaveFile called with parameters:";
+diff --git a/src/region-select/FloatingBackground.qml b/src/region-select/FloatingBackground.qml
+index 3422e33..483409a 100644
+--- a/src/region-select/FloatingBackground.qml
++++ b/src/region-select/FloatingBackground.qml
+@@ -1,8 +1,12 @@
+ import QtQuick
++import FormaPortal 1.0
+ import org.kde.kirigami as Kirigami
+ 
+ Kirigami.ShadowedRectangle {
+-    radius: Kirigami.Units.mediumSpacing / 2
++    color: Qt.alpha(Theme.colors.window, 0.92)
++    border.width: 1
++    border.color: Qt.alpha(Theme.colors.text, 0.15)
++    radius: 14
+     shadow.color: Qt.rgba(0,0,0,0.2)
+     shadow.size: 9
+     shadow.yOffset: 2
+diff --git a/src/region-select/FloatingTextBox.qml b/src/region-select/FloatingTextBox.qml
+index 07fb791..5736b54 100644
+--- a/src/region-select/FloatingTextBox.qml
++++ b/src/region-select/FloatingTextBox.qml
+@@ -1,4 +1,5 @@
+ import QtQuick
++import FormaPortal 1.0
+ import org.kde.kirigami as Kirigami
+ 
+ Kirigami.Padding {
+@@ -12,10 +13,10 @@ Kirigami.Padding {
+         anchors.fill: parent
+         z: -1
+ 
+-        radius: Kirigami.Units.mediumSpacing / 2 + border.width
++        radius: 14 + border.width
+ 
+-        color: Qt.alpha(Kirigami.Theme.backgroundColor, 0.85)
+-        border.color: Qt.alpha(Kirigami.Theme.textColor, 0.2)
++        color: Qt.alpha(Theme.colors.window, 0.85)
++        border.color: Qt.alpha(Theme.colors.text, 0.2)
+         border.width: 1
+     }
+ }
+diff --git a/src/region-select/RegionSelectOverlay.qml b/src/region-select/RegionSelectOverlay.qml
+index d349a23..8f5ca28 100644
+--- a/src/region-select/RegionSelectOverlay.qml
++++ b/src/region-select/RegionSelectOverlay.qml
+@@ -1,4 +1,5 @@
+ import QtQuick
++import FormaPortal 1.0
+ import QtQuick.Layouts
+ import QtQuick.Controls as QQC2
+ import org.kde.kirigami as Kirigami
+diff --git a/src/xdg-desktop-portal-kde.cpp b/src/xdg-desktop-portal-kde.cpp
+index a1ab8df..dfc6426 100644
+--- a/src/xdg-desktop-portal-kde.cpp
++++ b/src/xdg-desktop-portal-kde.cpp
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <QApplication>
++#include "formastyle.h"
+ #include <QCommandLineParser>
+ #include <QDBusConnection>
+ #include <QDBusConnectionInterface>
+@@ -30,6 +31,7 @@ int main(int argc, char *argv[])
+     qunsetenv("QT_WAYLAND_RECONNECT");
+     QCoreApplication::setAttribute(Qt::AA_DisableSessionManager);
+     QApplication a(argc, argv);
++    installFormaPortalStyle();
+     a.setQuitOnLastWindowClosed(false);
+     a.setQuitLockEnabled(false);
+ 

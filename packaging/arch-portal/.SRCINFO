@@ -1,0 +1,63 @@
+pkgbase = xdg-desktop-portal-forma
+	pkgdesc = Forma desktop portal interfaces with the KDE portal backend
+	pkgver = 6.8.0
+	pkgrel = 1
+	url = https://github.com/skjsbsnq/Forma
+	arch = x86_64
+	license = LGPL-2.0-or-later
+	license = GPL-3.0-only
+	license = OFL-1.1
+	checkdepends = python
+	makedepends = cmake
+	makedepends = extra-cmake-modules
+	makedepends = ninja
+	makedepends = pkgconf
+	makedepends = gettext
+	makedepends = git
+	makedepends = plasma-wayland-protocols
+	makedepends = wayland-protocols
+	makedepends = vulkan-headers
+	makedepends = shaderc
+	depends = glibc
+	depends = gcc-libs
+	depends = sdl3
+	depends = freetype2
+	depends = fontconfig
+	depends = libglvnd
+	depends = dbus
+	depends = hicolor-icon-theme
+	depends = xdg-utils
+	depends = kcmutils
+	depends = kconfig
+	depends = kcoreaddons
+	depends = kcrash
+	depends = kdeclarative
+	depends = kglobalaccel
+	depends = kiconthemes
+	depends = ki18n
+	depends = kio>=6.31.0
+	depends = kio-fuse
+	depends = kirigami
+	depends = kirigami-addons
+	depends = kitemviews
+	depends = knotifications
+	depends = kpipewire>=6.8.0
+	depends = kservice
+	depends = kstatusnotifieritem
+	depends = kwayland>=6.8.0
+	depends = kwindowsystem
+	depends = libxkbcommon
+	depends = plasma-workspace
+	depends = qt6-base>=6.12.0
+	depends = qt6-declarative>=6.12.0
+	depends = wayland
+	depends = xdg-desktop-portal
+	optdepends = vulkan-icd-loader: Vulkan rendering for the Forma file picker
+	optdepends = noto-fonts-cjk: Chinese font fallback
+	provides = xdg-desktop-portal-kde=6.8.0
+	provides = xdg-desktop-portal-impl
+	conflicts = xdg-desktop-portal-kde
+	options = !debug
+	options = !lto
+
+pkgname = xdg-desktop-portal-forma

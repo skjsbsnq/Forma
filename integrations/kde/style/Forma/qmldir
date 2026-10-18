@@ -1,0 +1,21 @@
+module Forma
+Button 1.0 Button.qml
+CheckBox 1.0 CheckBox.qml
+ComboBox 1.0 ComboBox.qml
+DialogButtonBox 1.0 DialogButtonBox.qml
+ItemDelegate 1.0 ItemDelegate.qml
+Menu 1.0 Menu.qml
+MenuItem 1.0 MenuItem.qml
+Popup 1.0 Popup.qml
+ProgressBar 1.0 ProgressBar.qml
+RadioButton 1.0 RadioButton.qml
+ScrollBar 1.0 ScrollBar.qml
+ScrollView 1.0 ScrollView.qml
+Slider 1.0 Slider.qml
+SpinBox 1.0 SpinBox.qml
+Switch 1.0 Switch.qml
+TabButton 1.0 TabButton.qml
+TextArea 1.0 TextArea.qml
+TextField 1.0 TextField.qml
+ToolButton 1.0 ToolButton.qml
+ToolTip 1.0 ToolTip.qml

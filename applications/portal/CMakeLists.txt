@@ -1,0 +1,15 @@
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_package(Qt6 QUIET COMPONENTS Core)
+  if(Qt6Core_FOUND)
+    add_executable(forma-file-picker main.cpp
+      ../finder/applications.cpp ../finder/browser.cpp ../finder/file_icons.cpp ../finder/file_model.cpp
+      ../finder/preview_cache.cpp ../finder/views.cpp)
+    target_link_libraries(forma-file-picker PRIVATE mayonnaise::mayonnaise Qt6::Core)
+    target_include_directories(forma-file-picker PRIVATE ../finder)
+    mayonnaise_set_warnings(forma-file-picker)
+    mayonnaise_set_sanitizers(forma-file-picker)
+    install(TARGETS forma-file-picker RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT forma-file-picker)
+  else()
+    message(STATUS "Forma file picker disabled: Qt6 Core was not found")
+  endif()
+endif()
