@@ -1,6 +1,5 @@
-// The store's custom widgets: the discover hero, card carousels, category tiles, app grids and the
-// app detail page. They draw with Painter (the framework's design language) and read the catalogue
-// through a StoreModel the app owns.
+// Store pages combine Forma controls (Sidebar, Label, Button) with custom editorial
+// artwork, image shelves and responsive catalogue layouts, backed by StoreModel.
 #pragma once
 
 #include <mayonnaise/mayonnaise.hpp>

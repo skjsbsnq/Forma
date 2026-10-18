@@ -2,7 +2,7 @@
 
 面向 Flatpak 的桌面应用商店，界面以 macOS 26 Tahoe 的 App Store 为视觉基准：浮动玻璃侧边栏、统一工具栏、圆角应用卡片、编辑精选横幅与详情页。应用完全由 Forma（Mayonnaise）框架自行绘制，不依赖 GTK、Qt 或 WebView。
 
-![Forma 应用商店首页](docs/screenshots/forma-store-home.png)
+![Forma 应用商店首页](../../docs/screenshots/forma-store-home.png)
 
 ## 运行
 
@@ -22,34 +22,40 @@ flatpak remote-ls --app >/dev/null   # 生成 /var/lib/flatpak/appstream 缓存
 
 | 精选 | 开发 |
 | --- | --- |
-| ![精选](docs/screenshots/forma-store-home.png) | ![开发](docs/screenshots/forma-store-develop.png) |
+| ![精选](../../docs/screenshots/forma-store-home.png) | ![开发](../../docs/screenshots/forma-store-develop.png) |
 
 | 类别 | 搜索 |
 | --- | --- |
-| ![类别](docs/screenshots/forma-store-categories.png) | ![搜索](docs/screenshots/forma-store-search.png) |
+| ![类别](../../docs/screenshots/forma-store-categories.png) | ![搜索](../../docs/screenshots/forma-store-search.png) |
 
 | 应用详情 | 安装进度 |
 | --- | --- |
-| ![应用详情](docs/screenshots/forma-store-app.png) | ![安装进度](docs/screenshots/forma-store-installing.png) |
+| ![应用详情](../../docs/screenshots/forma-store-app.png) | ![安装进度](../../docs/screenshots/forma-store-installing.png) |
 
 | 更新 | 已安装 |
 | --- | --- |
-| ![更新](docs/screenshots/forma-store-updates.png) | ![已安装](docs/screenshots/forma-store-installed.png) |
+| ![更新](../../docs/screenshots/forma-store-updates.png) | ![已安装](../../docs/screenshots/forma-store-installed.png) |
 
 深色外观：
 
-![深色外观](docs/screenshots/forma-store-dark.png)
+![深色外观](../../docs/screenshots/forma-store-dark.png)
 
 ### 与 macOS 26 App Store 的对应关系
 
 | macOS 26 App Store | Forma 应用商店 |
 | --- | --- |
-| 浮动玻璃侧边栏 + 交通灯 | `SplitView` 玻璃面板，侧边栏顶部是搜索框 |
+| 浮动玻璃侧边栏 + 交通灯 | `SplitView` 玻璃面板与框架 `Sidebar`，顶部是搜索框 |
 | Discover / Create / Work / Play / Develop / Learn / Updates | 精选 / 创意 / 工作 / 娱乐 / 开发 / 学习 + 类别、更新、已安装 |
 | 今日应用横幅、编辑推荐卡片 | 截图背景的 Hero 横幅、双列精选卡片、图标卡片横排 |
 | 统一工具栏、玻璃胶囊按钮 | `Toolbar` + `ToolbarGroup`、`ButtonStyle::Glass` |
 | 应用页：图标、评分信息条、截图、版本说明 | 图标头部、信息网格、截图画廊、版本说明 |
-| 黑色「获取」/「打开」胶囊 | 状态驱动的胶囊按钮：获取、安装中、打开、更新、重试 |
+| 黑色「获取」/「打开」胶囊 | 框架卡片按钮与精选胶囊：获取、安装进度、打开、更新、重试 |
+
+### 布局与框架组件
+
+侧边栏复用 Forma `Sidebar`（选择动画、滚动与键盘导航），应用网格卡片的文字和操作复用 `Label`、`Button`，底部设置入口使用框架按钮。Hero、精选图片与卡片背景保留定制绘制。
+
+应用卡片使用固定 64×64 逻辑像素图标并保持图片比例，卡片高度不随列宽放大；名称与摘要单行省略，操作按钮单独排列。编辑精选区在内容宽度不足 700 逻辑像素时切换为单列。
 
 ## 功能
 
@@ -87,7 +93,7 @@ XDG_CONFIG_HOME=/tmp/forma-store MAYO_DEMO=discover \
 ```
 applications/app_store/
   main.cpp       应用入口、工具栏、页面路由、安装作业与错误提示
-  store_ui.cpp   自绘组件：Hero、卡片、网格、类别、详情页、侧边栏
+  store_ui.cpp   页面组合：框架侧边栏、文字与按钮，定制 Hero、图片与响应式网格
   catalog.cpp    AppStream 解析、flatpak 调用、搜索、分类与文案
   images.cpp     图标/截图的后台下载与缓存
   json_lite.cpp  flatpak --json 输出的小型 JSON 读取器
@@ -108,6 +114,21 @@ ctest --test-dir build -R forma_store_tests --output-on-failure
 cmake --build build --target forma-app-store
 sudo cmake --install build --component forma-app-store
 ```
+
+Arch Linux 当前打包版本为 `0.1.0-2`，在仓库根目录执行：
+
+```sh
+(cd packaging/arch-appstore && makepkg -sif)
+forma-app-store
+```
+
+如已构建安装包，也可直接安装或升级：
+
+```sh
+sudo pacman -U packaging/arch-appstore/forma-appstore-0.1.0-2-x86_64.pkg.tar.zst
+```
+
+升级后关闭旧窗口并重新启动。安装包在本地生成，不随源码仓库分发。
 
 `.desktop` 与 SVG 图标位于 `applications/app_store/data/`，图标由 `tools/make_forma_icons.py app_store` 生成。
 

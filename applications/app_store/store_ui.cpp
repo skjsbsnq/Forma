@@ -15,9 +15,10 @@ namespace {
 // --- metrics -------------------------------------------------------------------------------------
 
 constexpr float kPagePad = 32;      ///< side padding of every page
-constexpr float kHeroHeight = 316;  ///< discover hero
+constexpr float kHeroHeight = 260;  ///< discover hero
 constexpr float kCard = 150;        ///< icon cards in carousels
 constexpr float kGridCard = 138;    ///< icon cards in grids
+constexpr float kCardHeight = 184;  ///< fixed rhythm, independent of grid column width
 constexpr float kGap = 18;
 constexpr float kBlock = 30;  ///< vertical gap between blocks
 
@@ -119,16 +120,19 @@ std::string stateLabel(InstallState state) {
 void drawPlaceholder(Painter& p, const Rect& r, const AppEntry& app, float radius) {
     const Color tint = accentFor(app);
     p.fillVerticalGradient(r, radius, tint.lighter(0.22f), tint.lighter(-0.10f));
-    const std::string initial = app.name.empty() ? "?" : std::string(1, app.name[0]);
+    std::size_t end = 1;
+    while (end < app.name.size() && (static_cast<unsigned char>(app.name[end]) & 0xC0) == 0x80) ++end;
+    const std::string initial = app.name.empty() ? "?" : app.name.substr(0, end);
     Font font{static_cast<float>(std::max(12.0f, r.width * 0.40f)), FontWeight::Bold, r.height * 0.6f};
     p.drawText(initial, r, font, Color::white(0.92f), TextAlign::Center);
 }
 
-/// App icon with rounded corners; falls back to the placeholder until the image is loaded.
+/// Preserve the source icon silhouette and aspect ratio; use a tinted fallback while loading.
 void drawAppIcon(Painter& p, StoreModel& model, const AppEntry& app, const Rect& r, float radius) {
     if (auto img = model.images.icon(app.id, app.iconPath, app.iconUrl)) {
-        p.drawImage(r, *img, radius);
-        p.strokeRoundedRect(r, radius, Color::black(0.10f), 0.5f);
+        const float scale = std::min(r.width / std::max(1, img->width()), r.height / std::max(1, img->height()));
+        const float w = img->width() * scale, h = img->height() * scale;
+        p.drawImage({r.center().x - w * 0.5f, r.center().y - h * 0.5f, w, h}, *img, 0);
     } else {
         drawPlaceholder(p, r, app, radius);
     }
@@ -371,53 +375,71 @@ private:
 class AppCardView : public Widget {
 public:
     AppCardView(StoreModel& model, std::string id, float width, bool chip = true)
-        : m_model(model), m_id(std::move(id)), m_width(width), m_chip(chip) {}
+        : m_model(model), m_id(std::move(id)), m_width(width), m_chip(chip) {
+        const auto* app = model.find(m_id);
+        m_title = Label(app ? app->name : "").verbatim().font(cardTitleFont()).lineLimit(1).node();
+        m_subtitle = Label(app ? (app->summary.empty() ? categoryName(app->primaryCategory()) : app->summary) : "")
+                         .verbatim().font(cardSubFont()).secondary().lineLimit(1).node();
+        addChild(m_title);
+        addChild(m_subtitle);
+        m_action = std::make_shared<ButtonView>("");
+        m_action->setControlSize(ControlSize::Small);
+        m_action->setOnClick([this] {
+            if (const auto* entry = m_model.find(m_id)) activate(m_model, *entry);
+        });
+        if (m_chip) addChild(m_action);
+    }
 
-    Size measureContent(Size /*available*/) override { return {m_width, m_width + 68}; }
+    Size measureContent(Size /*available*/) override { return {m_width, kCardHeight}; }
     [[nodiscard]] bool isInteractive() const override { return true; }
-
     [[nodiscard]] Rect iconRect() const {
         const Rect r = frame();
-        return {r.x + 11, r.y + 11, r.width - 22, r.width - 22};
+        return {r.x + 14, r.y + 14, 64, 64};
     }
     void setCardWidth(float width) { m_width = width; }
-
+    void arrangeContent(const Rect& r) override {
+        const float w = std::max(0.0f, r.width - 28);
+        m_title->measure({w, 20});
+        m_title->arrange({r.x + 14, r.y + 90, w, 20});
+        m_subtitle->measure({w, 18});
+        m_subtitle->arrange({r.x + 14, r.y + 113, w, 18});
+        if (m_chip) {
+            m_action->measure({w, 28});
+            m_action->arrange({r.x + 14, r.bottom() - 40, std::min(100.0f, w), 28});
+        }
+    }
     void draw(Painter& p) override {
         const AppEntry* app = m_model.find(m_id);
         if (!app) return;
-        const Rect r = frame();
-        const bool hovered = isHovered();
-        cardBackground(p, r, 15, hovered);
-        drawAppIcon(p, m_model, *app, iconRect(), 21);
-        const float tx = r.x + 12;
-        const float tw = r.width - 24;
-        p.drawText(cutText(p, app->name, cardTitleFont(), tw), {tx, r.y + r.width - 2, tw, 19}, cardTitleFont(),
-                   theme().colors.label);
-        const std::string sub = app->summary.empty() ? categoryName(app->primaryCategory()) : app->summary;
-        p.drawText(cutText(p, sub, cardSubFont(), tw), {tx, r.y + r.width + 17, tw, 16}, cardSubFont(),
-                   theme().colors.secondaryLabel);
-        if (m_chip) drawActionChip(p, m_model, *app, chipsRect(r), hovered);
+        const float textWidth = std::max(0.0f, frame().width - 28);
+        const auto title = cutText(p, app->name, cardTitleFont(), textWidth);
+        const auto subtitle = cutText(p, app->summary.empty() ? categoryName(app->primaryCategory()) : app->summary,
+                                      cardSubFont(), textWidth);
+        if (m_title->text() != title) m_title->setText(title);
+        if (m_subtitle->text() != subtitle) m_subtitle->setText(subtitle);
+        cardBackground(p, frame(), 15, isHovered());
+        drawAppIcon(p, m_model, *app, iconRect(), 13);
+        if (m_chip) {
+            const auto state = m_model.stateOf(*app);
+            std::string actionTitle = stateLabel(state);
+            if (state == InstallState::Busy) {
+                const float progress = m_model.progressOf(m_id);
+                if (progress >= 0) actionTitle = std::to_string(static_cast<int>(progress * 100)) + "%";
+            }
+            if (m_action->title() != actionTitle) m_action->setTitle(actionTitle);
+            if (m_actionState != state) {
+                m_action->setStyle(state == InstallState::Update ? ButtonStyle::Prominent : ButtonStyle::Default);
+                m_actionState = state;
+            }
+            m_action->setDisabled(state == InstallState::Busy || state == InstallState::Unavailable);
+        }
+        paintChildren(p);
     }
 
-    bool onPointerDown(const PointerEvent& e) override {
-        if (e.button != MouseButton::Left) return false;
-        const AppEntry* app = m_model.find(m_id);
-        if (m_chip && app && chipsRect(frame()).contains(e.position)) {
-            m_chipPressed = true;
-            return true;
-        }
-        return true;
-    }
+    bool onPointerDown(const PointerEvent& e) override { return e.button == MouseButton::Left; }
     void onPointerUp(const PointerEvent& e) override {
-        const AppEntry* app = m_model.find(m_id);
-        const bool wasChip = m_chipPressed;
-        m_chipPressed = false;
-        if (e.button != MouseButton::Left || !app) return;
-        if (wasChip) {
-            if (chipsRect(frame()).contains(e.position)) activate(m_model, *app);
-            return;
-        }
-        if (frame().contains(e.position) && m_model.callbacks.openApp) m_model.callbacks.openApp(m_id);
+        if (e.button == MouseButton::Left && frame().contains(e.position) && m_model.callbacks.openApp)
+            m_model.callbacks.openApp(m_id);
     }
     void onPointerMove(const PointerEvent& e) override {
         if (!host()) return;
@@ -437,7 +459,9 @@ private:
     std::string m_id;
     float m_width;
     bool m_chip;
-    bool m_chipPressed = false;
+    std::shared_ptr<LabelView> m_title, m_subtitle;
+    std::shared_ptr<ButtonView> m_action;
+    InstallState m_actionState = InstallState::Get;
 };
 
 /// A horizontally scrollable shelf of icon cards (touchpads swipe it sideways; a vertical wheel
@@ -454,13 +478,13 @@ public:
             addChild(m_cards.back());
         }
     }
-    Size measureContent(Size available) override { return {available.width, m_width + 68}; }
+    Size measureContent(Size available) override { return {available.width, kCardHeight}; }
     [[nodiscard]] bool expandsContent(Axis axis) const override { return axis == Axis::Horizontal; }
     void arrangeContent(const Rect& content) override {
         for (std::size_t i = 0; i < m_cards.size(); ++i) {
-            m_cards[i]->measure({m_width, m_width + 68});
+            m_cards[i]->measure({m_width, kCardHeight});
             m_cards[i]->arrange({content.x - m_physics.offset().x + static_cast<float>(i) * (m_width + kGap),
-                                 content.y, m_width, m_width + 68});
+                                 content.y, m_width, kCardHeight});
         }
         const float total = static_cast<float>(m_cards.size()) * (m_width + kGap) - kGap;
         m_physics.setLimits({std::max(0.0f, total - content.width), 0}, content.size());
@@ -511,9 +535,8 @@ public:
     }
     Size measureContent(Size available) override {
         const int cols = columns(available.width);
-        const float w = cardWidth(available.width, cols);
         const auto rows = (m_cards.size() + static_cast<std::size_t>(cols) - 1) / static_cast<std::size_t>(cols);
-        return {available.width, static_cast<float>(rows) * (w + 68 + kGap) + (rows ? 0.0f : 0.0f)};
+        return {available.width, static_cast<float>(rows) * (kCardHeight + kGap) - (rows ? kGap : 0.0f)};
     }
     [[nodiscard]] bool expandsContent(Axis axis) const override { return axis == Axis::Horizontal; }
     void arrangeContent(const Rect& content) override {
@@ -523,9 +546,9 @@ public:
             const int col = static_cast<int>(i) % cols;
             const int row = static_cast<int>(i) / cols;
             m_cards[i]->setCardWidth(w);
-            m_cards[i]->measure({w, w + 68});
+            m_cards[i]->measure({w, kCardHeight});
             m_cards[i]->arrange({content.x + static_cast<float>(col) * (w + kGap),
-                                 content.y + static_cast<float>(row) * (w + 68 + kGap), w, w + 68});
+                                 content.y + static_cast<float>(row) * (kCardHeight + kGap), w, kCardHeight});
         }
     }
     void draw(Painter& p) override {
@@ -536,7 +559,7 @@ public:
 
 private:
     [[nodiscard]] int columns(float width) const {
-        return std::max(2, static_cast<int>((width + kGap) / (m_minCard + kGap)));
+        return std::max(1, static_cast<int>((width + kGap) / (m_minCard + kGap)));
     }
     [[nodiscard]] float cardWidth(float width, int cols) const {
         return std::floor((width - kGap * static_cast<float>(cols - 1)) / static_cast<float>(cols));
@@ -779,15 +802,17 @@ public:
         }
     }
     Size measureContent(Size available) override {
-        const int rows = static_cast<int>((m_cards.size() + 1) / 2);
+        const int cols = available.width >= 700 ? 2 : 1;
+        const int rows = static_cast<int>((m_cards.size() + cols - 1) / cols);
         return {available.width, static_cast<float>(rows) * (208 + kGap) - (rows ? kGap : 0)};
     }
     [[nodiscard]] bool expandsContent(Axis axis) const override { return axis == Axis::Horizontal; }
     void arrangeContent(const Rect& content) override {
-        const float w = m_cards.size() > 1 ? (content.width - kGap) * 0.5f : content.width;
+        const int cols = content.width >= 700 && m_cards.size() > 1 ? 2 : 1;
+        const float w = (content.width - kGap * (cols - 1)) / cols;
         for (std::size_t i = 0; i < m_cards.size(); ++i) {
-            const int col = static_cast<int>(i) % 2;
-            const int row = static_cast<int>(i) / 2;
+            const int col = static_cast<int>(i) % cols;
+            const int row = static_cast<int>(i) / cols;
             m_cards[i]->measure({w, 208});
             m_cards[i]->arrange({content.x + static_cast<float>(col) * (w + kGap),
                                  content.y + static_cast<float>(row) * (208 + kGap), w, 208});
@@ -1755,201 +1780,51 @@ namespace {
 class SidebarBodyView : public Widget {
 public:
     SidebarBodyView(StoreModel& model, std::string selected, std::function<void(const std::string&)> onSelect,
-                    std::shared_ptr<Widget> search)
-        : m_model(model), m_selected(std::move(selected)), m_onSelect(std::move(onSelect)),
-          m_search(std::move(search)) {
-        if (m_search) addChild(m_search);
-        m_rows = sidebarSections();
-        m_rows.emplace_back("categories", "类别");
-        m_rows.emplace_back("updates", "更新");
-        m_rows.emplace_back("installed", "已安装");
-        setCursor(CursorShape::Arrow);
+                    std::shared_ptr<Widget> search) : m_model(model) {
+        m_sidebar = std::make_shared<SidebarView>(items());
+        m_sidebar->setHeader(std::move(search));
+        m_sidebar->setSelection(selected);
+        m_sidebar->setOnSelect(onSelect);
+        addChild(m_sidebar);
+        m_footer = Button(Icon::Person, "本机应用与设置").style(ButtonStyle::Borderless)
+                       .onClick([onSelect] { if (onSelect) onSelect("settings"); }).node();
+        addChild(m_footer);
+        m_count = model.updateCount;
     }
-
-    [[nodiscard]] bool acceptsFocus() const override { return true; }
-    [[nodiscard]] bool isInteractive() const override { return true; }
-    [[nodiscard]] bool expandsContent(Axis /*axis*/) const override { return false; }
-    Size measureContent(Size available) override { return {available.width, available.height}; }
-
+    Size measureContent(Size available) override { return available; }
     void setSelected(const std::string& id) {
-        m_selected = id;
-        invalidate();
-    }
-    [[nodiscard]] const std::string& selected() const { return m_selected; }
-    void setUpdateCount(int count) {
-        m_model.updateCount = count;
-        invalidate();
-    }
-
-    void arrangeContent(const Rect& content) override {
-        if (!m_search) return;
-        const float top = rowTop();
-        m_search->measure({content.width - 24, 28});
-        m_search->arrange({content.x + 12, top - 4, content.width - 24, 28});
-    }
-
-    [[nodiscard]] float rowTop() const {
-        float top = frame().y + 8;
-        if (auto* h = host()) top = std::max(top, h->titleBarHeight() + 8);
-        return top;
-    }
-
-    [[nodiscard]] Rect rowRect(int index) const {
-        const float top = rowTop() + 38;  // below the search field
-        float y = top;
-        for (int i = 0; i < index; ++i) {
-            y += rowHeight(i);
-            // A gap separates the editorial sections from "类别 / 更新 / 已安装".
-            if (m_rows[static_cast<std::size_t>(i)].first == "utilities") y += 16;
+        if (m_count != m_model.updateCount) {
+            m_count = m_model.updateCount;
+            m_sidebar->setItems(items());
         }
-        return {frame().x + 10, y, frame().width - 20, 30};
+        m_sidebar->setSelection(id);
     }
-
-    [[nodiscard]] float rowHeight(int index) const {
-        (void)index;
-        return 32.0f;
+    void arrangeContent(const Rect& r) override {
+        const float footer = 54;
+        m_sidebar->measure({r.width, std::max(0.0f, r.height - footer)});
+        m_sidebar->arrange({r.x, r.y + 8, r.width, std::max(0.0f, r.height - footer - 8)});
+        m_footer->measure({r.width - 24, 32});
+        m_footer->arrange({r.x + 12, r.bottom() - 42, r.width - 24, 32});
     }
-
-    void draw(Painter& p) override {
-        paintChildren(p);
-        const Theme& t = theme();
-        const Font f = t.font(TextStyle::Body);
-        const float px = 1.0f / p.scale();
-        const int count = static_cast<int>(m_rows.size());
-        for (int i = 0; i < count; ++i) {
-            const Rect r = rowRect(i);
-            const std::string& id = m_rows[static_cast<std::size_t>(i)].first;
-            (void)px;
-            const bool selected = id == m_selected;
-            const bool hovered = i == m_hovered;
-            if (selected) {
-                const Color fill = t.isDark() ? Color::white(0.14f) : Color::black(0.075f);
-                p.fillRoundedRect(r, 8, fill);
-            } else if (hovered) {
-                p.fillRoundedRect(r, 8, t.colors.hover);
-            }
-            const Color ink = selected ? t.colors.label : t.colors.secondaryLabel;
-            const Color glyph = selected ? t.colors.accent : (t.isDark() ? Color::white(0.75f) : t.colors.accent);
-            p.drawIcon(iconFor(id), {r.x + 9, r.center().y - 8, 16, 16}, glyph, 1.0f);
-            p.drawText(m_rows[static_cast<std::size_t>(i)].second, {r.x + 34, r.y, r.width - 34, r.height}, f, ink);
-            if (id == "updates" && m_model.updateCount > 0) {
-                const std::string badge = std::to_string(m_model.updateCount);
-                const Font bf = t.font(TextStyle::Caption);
-                const float bw = std::max(18.0f, p.measureText(badge, bf) + 10);
-                const Rect pill{r.right() - bw - 8, r.center().y - 9, bw, 18};
-                p.fillRoundedRect(pill, 9, t.colors.accent);
-                p.drawText(badge, pill, bf, t.colors.onAccent, TextAlign::Center);
-            }
-        }
-        // Account card at the bottom.
-        const Rect account = accountRect();
-        if (account.height > 0) {
-            p.fillRect({account.x + 10, account.y - 8, account.width - 20, px}, t.colors.separator);
-            const float avatar = 28;
-            const Rect circle{account.x + 12, account.center().y - avatar * 0.5f, avatar, avatar};
-            p.fillCircle(circle.center(), avatar * 0.5f, Color::hex(0x8E8E93));
-            p.drawIcon(Icon::Person, circle.inset(6), Color::white(0.95f), 1.0f);
-            const Font nameFont = t.font(TextStyle::Subheadline).withWeight(FontWeight::Semibold);
-            p.drawText("本机用户", {circle.right() + 9, account.y + 8, account.width - 60, 18}, nameFont, t.colors.label);
-            const std::string sub = std::to_string(m_model.catalog.installedApps().size()) + " 个应用";
-            p.drawText(sub, {circle.right() + 9, account.y + 26, account.width - 60, 16}, t.font(TextStyle::Footnote),
-                       t.colors.secondaryLabel);
-            if (m_hoverAccount) p.fillRoundedRect(account.inset(6, 2), 10, t.colors.hover);
-        }
-    }
-
-    [[nodiscard]] Rect accountRect() const {
-        const Rect r = frame();
-        return {r.x + 10, r.bottom() - 62, r.width - 20, 52};
-    }
-
-    [[nodiscard]] int rowAt(Point p) const {
-        for (int i = 0; i < static_cast<int>(m_rows.size()); ++i)
-            if (rowRect(i).contains(p)) return i;
-        return -1;
-    }
-
-    bool onPointerDown(const PointerEvent& e) override {
-        if (e.button != MouseButton::Left) return false;
-        const int row = rowAt(e.position);
-        if (row >= 0) {
-            m_pressed = row;
-            return true;
-        }
-        if (accountRect().contains(e.position)) {
-            m_pressedAccount = true;
-            return true;
-        }
-        return false;
-    }
-    void onPointerMove(const PointerEvent& e) override {
-        const int row = rowAt(e.position);
-        const bool account = accountRect().contains(e.position);
-        if (row != m_hovered || account != m_hoverAccount) {
-            m_hovered = row;
-            m_hoverAccount = account;
-            invalidate();
-        }
-        if (host()) host()->setCursor(row >= 0 || account ? CursorShape::PointingHand : CursorShape::Arrow);
-    }
-    void onPointerLeave() override {
-        m_hovered = -1;
-        m_hoverAccount = false;
-        invalidate();
-    }
-    void onPointerUp(const PointerEvent& e) override {
-        if (m_pressedAccount) {
-            m_pressedAccount = false;
-            if (accountRect().contains(e.position) && m_onSelect) m_onSelect("settings");
-            return;
-        }
-        const int pressed = m_pressed;
-        m_pressed = -1;
-        if (pressed < 0 || !rowRect(pressed).contains(e.position)) return;
-        const std::string id = m_rows[static_cast<std::size_t>(pressed)].first;
-        m_selected = id;
-        invalidate();
-        if (m_onSelect) m_onSelect(id);
-    }
-    bool onKeyDown(const KeyEvent& e) override {
-        int index = -1;
-        for (int i = 0; i < static_cast<int>(m_rows.size()); ++i)
-            if (m_rows[static_cast<std::size_t>(i)].first == m_selected) index = i;
-        if (e.key == Key::Up || e.key == Key::Down) {
-            const int delta = e.key == Key::Up ? -1 : 1;
-            index = std::clamp(index + delta, 0, static_cast<int>(m_rows.size()) - 1);
-            m_selected = m_rows[static_cast<std::size_t>(index)].first;
-            invalidate();
-            if (m_onSelect) m_onSelect(m_selected);
-            return true;
-        }
-        return false;
-    }
-
+    void draw(Painter& p) override { paintChildren(p); }
 private:
-    static Icon iconFor(const std::string& id) {
-        if (id == "discover") return Icon::Sparkles;
-        if (id == "create") return Icon::Paintbrush;
-        if (id == "work") return Icon::Document;
-        if (id == "play") return Icon::Play;
-        if (id == "develop") return Icon::Terminal;
-        if (id == "learn") return Icon::Library;
-        if (id == "utilities") return Icon::Grid;
-        if (id == "categories") return Icon::Columns;
-        if (id == "updates") return Icon::ArrowDownCircle;
-        if (id == "installed") return Icon::HardDrive;
-        return Icon::Circle;
+    std::vector<SidebarItem> items() const {
+        std::vector<SidebarItem> rows;
+        const Icon icons[] = {Icon::Sparkles, Icon::Paintbrush, Icon::Document, Icon::Play,
+                              Icon::Terminal, Icon::Library, Icon::Grid};
+        std::size_t index = 0;
+        for (const auto& [id, title] : sidebarSections()) rows.emplace_back(id, icons[index++], title);
+        rows.push_back(SidebarItem::header(""));
+        rows.emplace_back("categories", Icon::Columns, "类别");
+        rows.push_back(SidebarItem("updates", Icon::ArrowDownCircle, "更新")
+                           .withBadge(m_model.updateCount > 0 ? std::to_string(m_model.updateCount) : ""));
+        rows.emplace_back("installed", Icon::HardDrive, "已安装");
+        return rows;
     }
-
     StoreModel& m_model;
-    std::string m_selected;
-    std::function<void(const std::string&)> m_onSelect;
-    std::shared_ptr<Widget> m_search;
-    std::vector<std::pair<std::string, std::string>> m_rows;
-    int m_hovered = -1;
-    int m_pressed = -1;
-    bool m_hoverAccount = false;
-    bool m_pressedAccount = false;
+    std::shared_ptr<SidebarView> m_sidebar;
+    std::shared_ptr<Widget> m_footer;
+    int m_count = 0;
 };
 
 }  // namespace
