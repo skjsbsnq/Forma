@@ -149,12 +149,27 @@ Rect ScrollViewView::thumbRect(Axis axis) const {
     return thumb.inset(2.0f);
 }
 
+void ScrollViewView::setScrollEdge(ScrollEdgeStyle style, float height) {
+    m_edgeStyle = style;
+    m_edgeHeight = std::isfinite(height) ? std::max(0.0f, height) : 32.0f;
+    invalidate();
+}
+
 void ScrollViewView::draw(Painter& p) {
     const double t = now();
     step(t);
     Rect v = contentRect();
     p.pushClip(v, cornerRadius().max());
     paintChildren(p);
+    if (scrolls(Axis::Vertical) && maxOffset().y > 0 && m_edgeStyle != ScrollEdgeStyle::None) {
+        const float height = std::min(m_edgeHeight, v.height * 0.5f);
+        if (height > 0) {
+            const float top = std::clamp(offset().y / height, 0.0f, 1.0f);
+            const float bottom = std::clamp((maxOffset().y - offset().y) / height, 0.0f, 1.0f);
+            p.drawScrollEdge({v.x, v.y, v.width, height}, m_edgeStyle, false, top);
+            p.drawScrollEdge({v.x, v.bottom() - height, v.width, height}, m_edgeStyle, true, bottom);
+        }
+    }
     p.popClip();
 
     // Overlay scrollbars.

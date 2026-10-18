@@ -44,21 +44,30 @@ struct Font {
 
 /// Translucent backdrop materials (blurred, tinted "glass").
 enum class Material : std::uint8_t {
-    Sidebar,   ///< floating sidebar glass
-    Titlebar,  ///< toolbar / title bar over scrolled content
-    Popover,   ///< popovers and tooltips
-    Menu,      ///< menus
-    Glass,     ///< generic Liquid Glass (cards, floating controls)
+    Sidebar,     ///< floating sidebar glass
+    Titlebar,    ///< toolbar / title bar over scrolled content
+    Popover,     ///< popovers and tooltips
+    Menu,        ///< menus
+    Glass,       ///< generic Liquid Glass (cards, floating controls)
+    GlassClear,  ///< lightly frosted glass over photos and video
 };
 
+enum class ScrollEdgeStyle : std::uint8_t { None, Soft, Hard };
+
 struct MaterialStyle {
-    float blurRadius = 24;     ///< points
-    Color tint;                ///< laid over the blurred backdrop
-    float saturation = 1.6f;   ///< vibrancy: boosts color of what shows through
-    float noise = 0.015f;      ///< subtle grain so large glass areas don't band
-    Color highlight;           ///< specular rim along the top edge
-    Color border;              ///< hairline around the shape
-    float fadeBottom = 0;      ///< fraction of the height over which the material fades out at the bottom
+    float blurRadius = 24;    ///< points
+    Color tint;               ///< laid over the blurred backdrop
+    float saturation = 1.6f;  ///< vibrancy: boosts color of what shows through
+    float noise = 0.015f;     ///< subtle grain so large glass areas don't band
+    Color highlight;          ///< specular rim along the top edge
+    Color border;             ///< hairline around the shape
+    float fadeBottom = 0;     ///< fraction of the height over which the material fades out at the bottom
+    float bezelWidth = 0;     ///< lens edge width, in points; zero keeps the flat material
+    float refraction = 0;     ///< maximum backdrop displacement, in points
+    float rimStrength = 0;    ///< directional highlight along the lens edge
+    float toneLow = 0;        ///< black/white mapping before tint (identity by default)
+    float toneHigh = 1;
+    float toneCurve = 1;
 };
 
 struct ThemeColors {

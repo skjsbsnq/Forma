@@ -72,10 +72,21 @@ MaterialStyle Theme::material(Material m) const {
             s.tint = dark ? Color::rgb8(40, 40, 44, 0.74f) : Color::rgb8(244, 244, 246, 0.74f);
             break;
         case Material::Glass:
-            s.blurRadius = 12;
-            s.saturation = 1.8f;
-            s.tint = dark ? Color::white(0.07f) : Color::white(0.35f);
-            s.highlight = dark ? Color::white(0.22f) : Color::white(0.9f);
+        case Material::GlassClear:
+            s.blurRadius = m == Material::GlassClear ? 1.5f : 8.0f;
+            s.saturation = 1.15f;
+            s.tint = dark ? Color::white(0.04f) : Color::white(0.08f);
+            s.highlight = Color::transparent();
+            s.bezelWidth = 12;
+            s.refraction = 8;
+            s.rimStrength = dark ? 0.22f : 0.32f;
+            if (m == Material::Glass) {
+                s.toneLow = dark ? 0.10f : 0.50f;
+                s.toneHigh = dark ? 0.48f : 1.0f;
+            } else {
+                s.toneLow = dark ? 0.02f : 0.08f;
+                s.toneHigh = dark ? 0.92f : 1.0f;
+            }
             break;
     }
     return s;

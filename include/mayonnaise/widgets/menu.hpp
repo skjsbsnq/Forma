@@ -108,6 +108,9 @@ private:
 class MenuButtonView : public ControlView {
 public:
     MenuButtonView(std::string title, std::vector<MenuItem> items);
+    [[nodiscard]] const std::string& title() const { return m_title; }
+    [[nodiscard]] Icon icon() const { return m_icon; }
+    [[nodiscard]] const std::vector<MenuItem>& items() const { return m_items; }
     void setItems(std::vector<MenuItem> items) { m_items = std::move(items); }
     void setBorderless(bool b);
     void setIcon(Icon icon);
@@ -130,6 +133,7 @@ private:
 class PickerView : public ControlView {
 public:
     explicit PickerView(std::vector<std::string> options, int selected);
+    [[nodiscard]] const std::vector<std::string>& options() const { return m_options; }
     void setSelected(int index, bool notify = false);
     [[nodiscard]] int selected() const { return m_selected; }
     void setOptions(std::vector<std::string> options);

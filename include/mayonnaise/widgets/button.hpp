@@ -23,6 +23,8 @@ public:
     void setTitle(std::string title);
     [[nodiscard]] const std::string& title() const { return m_title; }
     void setIcon(Icon icon);
+    [[nodiscard]] Icon icon() const { return m_icon; }
+    [[nodiscard]] ButtonStyle style() const { return m_style; }
     void setStyle(ButtonStyle style);
     void setOnClick(std::function<void()> fn) { m_onClick = std::move(fn); }
     void click();

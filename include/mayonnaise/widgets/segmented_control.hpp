@@ -22,6 +22,7 @@ public:
     SegmentedControlView(std::vector<Segment> segments, int selected);
     void setSelected(int index, bool notify = false);
     [[nodiscard]] int selected() const { return m_selected; }
+    [[nodiscard]] const std::vector<Segment>& segments() const { return m_segments; }
     void setOnChange(std::function<void(int)> fn) { m_onChange = std::move(fn); }
 
     Size measureContent(Size available) override;

@@ -142,6 +142,7 @@ void MenuView::onPointerLeave() { setHighlighted(-1); }
 
 void MenuView::activate(int index) {
     if (index < 0 || index >= static_cast<int>(m_items.size())) return;
+    if (!m_items[static_cast<size_t>(index)].enabled || m_items[static_cast<size_t>(index)].isSeparator) return;
     if (m_items[static_cast<size_t>(index)].hasSubmenu()) {
         showSubmenu(index);
         return;

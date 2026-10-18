@@ -1,5 +1,5 @@
-#include "mayonnaise/ui_translation.hpp"
 #include "mayonnaise/widget.hpp"
+#include "mayonnaise/ui_translation.hpp"
 
 #include <algorithm>
 
@@ -9,7 +9,10 @@ namespace mayo {
 
 Widget::Widget() = default;
 Widget::~Widget() {
-    for (auto& c : m_children) c->m_parent = nullptr;
+    for (auto& c : m_children) {
+        c->m_parent = nullptr;
+        c->m_layoutSuppressed = false;
+    }
 }
 
 // --- tree ------------------------------------------------------------------------------------
@@ -31,12 +34,16 @@ void Widget::removeChild(Widget* child) {
     auto it = std::find_if(m_children.begin(), m_children.end(), [&](const auto& c) { return c.get() == child; });
     if (it == m_children.end()) return;
     (*it)->m_parent = nullptr;
+    (*it)->m_layoutSuppressed = false;
     m_children.erase(it);
     invalidateLayout();
 }
 
 void Widget::clearChildren() {
-    for (auto& c : m_children) c->m_parent = nullptr;
+    for (auto& c : m_children) {
+        c->m_parent = nullptr;
+        c->m_layoutSuppressed = false;
+    }
     m_children.clear();
     invalidateLayout();
 }
@@ -57,7 +64,7 @@ WidgetHost* Widget::host() const {
 // --- layout ----------------------------------------------------------------------------------
 
 Size Widget::measure(Size available) {
-    if (m_hidden) return {0, 0};
+    if (!isVisible()) return {0, 0};
     if (!m_layoutDirty && m_hasCache && m_cacheAvailable == available) return m_cacheResult;
 
     const float padH = m_padding.horizontal();
@@ -87,12 +94,12 @@ Size Widget::measure(Size available) {
 
 void Widget::arrange(const Rect& frame) {
     m_frame = frame;
-    if (m_hidden) return;
+    if (!isVisible()) return;
     arrangeContent(contentRect());
 }
 
 bool Widget::expands(Axis axis) const {
-    if (m_hidden) return false;
+    if (!isVisible()) return false;
     const auto& fixed = axis == Axis::Horizontal ? m_width : m_height;
     if (fixed) return false;
     const auto& max = axis == Axis::Horizontal ? m_maxW : m_maxH;
@@ -126,7 +133,7 @@ void Widget::invalidateLayout() {
 // --- painting --------------------------------------------------------------------------------
 
 void Widget::paint(Painter& p) {
-    if (m_hidden || m_opacity <= 0.0f) return;
+    if (!isVisible() || m_opacity <= 0.0f) return;
     // Cull subtrees entirely outside the clip (generous margin for focus rings and shadows).
     if (!m_frame.outset(24).intersects(p.clipBounds())) return;
     float opacity = m_opacity * (m_disabled ? 0.45f : 1.0f);
@@ -146,7 +153,7 @@ void Widget::draw(Painter& p) { paintChildren(p); }
 void Widget::drawOverlay(Painter& /*p*/) {}
 
 Widget* Widget::hitTest(Point p) {
-    if (m_hidden || !m_frame.contains(p)) return nullptr;
+    if (!isVisible() || !m_frame.contains(p)) return nullptr;
     for (auto it = m_children.rbegin(); it != m_children.rend(); ++it) {
         if (Widget* w = (*it)->hitTest(p)) return w;
     }

@@ -85,6 +85,29 @@ float sdRoundBox(vec2 p, vec2 halfSize, vec4 r) {
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
 }
 
+// Lens profile adapted from MyGo's MIT-licensed glass plugin.
+// See third_party/mygo/LICENSE and NOTICE. Guard the exact outer edge: the
+// profile's tangent becomes vertical there, and must stay finite on both GPUs.
+float glassLens(float depth, float bezel) {
+    if (bezel <= 0.0 || depth >= bezel) return 0.0;
+    float u = 1.0 - clamp(depth / bezel, 0.0, 1.0);
+    float v = max(1.0 - u*u*u*u, 0.0);
+    float a = sqrt(v * sqrt(v));
+    float b = u*u*u;
+    float n = max(length(vec2(a, b)), 0.0001);
+    float sn = b / n, cs = a / n;
+    float st = sn / 1.5, ct = sqrt(max(1.0 - st*st, 0.0));
+    return (sn*ct - cs*st) / max(cs*ct + sn*st, 0.0001) / 1.118034;
+}
+
+vec2 glassNormal(vec2 p, vec2 halfSize, vec4 radii) {
+    float radius = p.x > 0.0 ? (p.y > 0.0 ? radii.z : radii.y) : (p.y > 0.0 ? radii.w : radii.x);
+    vec2 q = abs(p) - halfSize + radius;
+    vec2 corner = max(q, 0.0);
+    if (dot(corner, corner) > 0.0001) return sign(p) * normalize(corner);
+    return q.x > q.y ? vec2(sign(p.x), 0.0) : vec2(0.0, sign(p.y));
+}
+
 float sdSegment(vec2 p, vec2 a, vec2 b) {
     vec2 pa = p - a;
     vec2 ba = b - a;
@@ -175,13 +198,23 @@ void main() {
         float t = clamp(dot(v_pixel - g0, dir) / max(dot(dir, dir), 1e-6), 0.0, 1.0);
         color = mix(v_color, v_color2, t);
     } else if (type == kBackdrop) {
-        alpha = coverage(sdRoundBox(p, v_shape.zw, v_radii));
-        vec2 uv = vec2(v_pixel.x / u_viewport.x, 1.0 - v_pixel.y / u_viewport.y);
+        float distance = sdRoundBox(p, v_shape.zw, v_radii);
+        alpha = coverage(distance);
+        float depth = max(-distance, 0.0);
+        float bezel = min(v_gradient.x, min(v_shape.z, v_shape.w));
+        vec2 normal = glassNormal(p, v_shape.zw, v_radii);
+        vec2 samplePixel = v_pixel - normal * v_gradient.y * glassLens(depth, bezel);
+        // Clamp displaced samples to the scene, including a half-texel inset.
+        samplePixel = clamp(samplePixel, vec2(0.5), u_viewport - 0.5);
+        vec2 uv = vec2(samplePixel.x / u_viewport.x, 1.0 - samplePixel.y / u_viewport.y);
         vec3 bg = texture(u_texture, uv).rgb;
         // Vibrancy: push the blurred backdrop away from its luminance.
         float l = dot(bg, vec3(0.2126, 0.7152, 0.0722));
-        bg = clamp(mix(vec3(l), bg, v_params.z), 0.0, 1.0);
+        float tone = mix(v_color2.x, v_color2.y, 1.0 - pow(max(1.0-l, 0.0), v_color2.z));
+        bg = clamp(vec3(tone) + (bg-l) * v_params.z * (v_color2.y-v_color2.x), 0.0, 1.0);
         vec3 tinted = bg * (1.0 - v_color.a) + v_color.rgb;  // tint is premultiplied
+        float rim = depth / max(v_gradient.w, 0.5);
+        tinted = mix(tinted, vec3(abs(normal.y)), v_gradient.z * exp(-rim*rim));
         tinted += (hash(floor(v_pixel)) - 0.5) * v_params.w;
         color = vec4(tinted, 1.0);
         alpha *= v_clip2.y;  // group opacity (fading popovers)

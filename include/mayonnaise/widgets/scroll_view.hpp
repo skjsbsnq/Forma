@@ -19,6 +19,8 @@ public:
     void scrollTo(Vec2 offset, bool animated = true);
     /// Extra space above the content (e.g. a toolbar the content slides under).
     void setContentInsetTop(float inset);
+    /// Shows an edge only while more content lies beyond it. None preserves the plain viewport.
+    void setScrollEdge(ScrollEdgeStyle style, float height = 32);
 
     Size measureContent(Size available) override;
     void arrangeContent(const Rect& content) override;
@@ -50,6 +52,8 @@ private:
     ScrollAxes m_axes = ScrollAxes::Vertical;
     Size m_contentSize;
     float m_insetTop = 0;
+    ScrollEdgeStyle m_edgeStyle = ScrollEdgeStyle::None;
+    float m_edgeHeight = 32;
     ScrollPhysics m_physics;
     double m_activity = -10;
     bool m_hoveringBar = false;
@@ -60,7 +64,12 @@ private:
 class ScrollView : public WidgetHandle<ScrollView, ScrollViewView> {
 public:
     explicit ScrollView(const Element& content) : WidgetHandle(std::make_shared<ScrollViewView>(content.widget())) {}
-    ScrollView& axes(ScrollAxes a) { return apply([&](ScrollViewView& n) { n.setAxes(a); }); }
+    ScrollView& axes(ScrollAxes a) {
+        return apply([&](ScrollViewView& n) { n.setAxes(a); });
+    }
+    ScrollView& scrollEdge(ScrollEdgeStyle style, float height = 32) {
+        return apply([&](ScrollViewView& n) { n.setScrollEdge(style, height); });
+    }
     void scrollTo(Vec2 offset, bool animated = true) { m_node->scrollTo(offset, animated); }
 };
 

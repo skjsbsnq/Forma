@@ -9,6 +9,8 @@ install(TARGETS mayonnaise mayonnaise_glad
   INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(DIRECTORY include/mayonnaise DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} COMPONENT devel)
 install(FILES assets/fonts/Inter-LICENSE.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/mayonnaise/licenses COMPONENT devel)
+install(FILES third_party/mygo/LICENSE third_party/mygo/NOTICE
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/mayonnaise/licenses/mygo COMPONENT devel)
 
 install(EXPORT mayonnaiseTargets
   NAMESPACE mayonnaise::

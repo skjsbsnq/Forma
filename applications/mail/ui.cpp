@@ -917,12 +917,14 @@ void MailUI::build() {
                           .height(33);
     m->listPane.add(listHeader);
     m->listPane.add(Divider());
+    m->listScroll.scrollEdge(ScrollEdgeStyle::Soft);
     m->listPane.add(m->listScroll);
     m->listPane.add(Divider());
     m->listPane.add(
         m->statusLabel.font(TextStyle::Caption).secondary().lineLimit(2).padding(Insets(6, 17)).minHeight(30));
     m->listPane.spacing(0);
     m->readerContent.spacing(15).padding(Insets(24, 28, 30, 28)).fillWidth();
+    m->readerScroll.scrollEdge(ScrollEdgeStyle::Soft);
     m->readerPane.add(m->readerScroll);
     m->readerPane.spacing(0);
     m->columns = std::make_shared<MailColumns>(m->listPane.node(), m->readerPane.node());

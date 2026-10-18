@@ -13,6 +13,7 @@ public:
     BooleanControlView(std::string label, bool on);
     void setOn(bool on, bool animated = true);
     [[nodiscard]] bool isOn() const { return m_on; }
+    [[nodiscard]] const std::string& label() const { return m_label; }
     void setLabel(std::string label);
     void setOnChange(std::function<void(bool)> fn) { m_onChange = std::move(fn); }
 

@@ -371,9 +371,60 @@ accessibility APIs, IME composition preview is minimal, single-line text fields 
 shadow (the compositor doesn't draw one for borderless windows), and only Linux is implemented — platform
 code is isolated in `src/platform/` for future macOS/Windows backends.
 
+## Glass, scroll edges and toolbar overflow
+
+`Material::Glass` uses a frosted lens with edge refraction and directional highlights.
+`Material::GlassClear` preserves more of the imagery underneath. Both use Forma's
+shared OpenGL/Vulkan shader, semantic theme and existing Painter API:
+
+```cpp
+painter.drawMaterial(bounds, 18, mayo::Material::Glass);
+painter.drawMaterial(bounds, 18, mayo::Material::GlassClear);
+```
+
+Materials sample content already drawn inside the window; they do not blur other
+windows or the desktop wallpaper. The new `MaterialStyle` lens and tone fields
+default to a flat, identity mapping for existing custom materials.
+
+`ScrollView(content).scrollEdge(ScrollEdgeStyle::Soft)` adds a fading edge where
+content continues beyond the viewport. `Hard` draws frosted edges; `None` is the
+default. The optional second argument controls edge height in points. Edges stay
+inside the viewport, beneath the overlay scrollbars, and do not intercept input.
+Custom containers may call `Painter::drawScrollEdge` after painting their content.
+The Mail message list and reader use soft edges.
+
+Toolbars automatically move trailing named actions into a more-actions menu when
+space runs out. Buttons, menus, toggles, pickers and text-labelled segments retain
+their callbacks, enabled state and current selection. Icon buttons use their tooltip
+as the menu label. Unnamed controls and custom inputs remain in the toolbar;
+application minimum widths should leave enough room for those fixed controls.
+`Toolbar(...).overflow(false)` opts out. Arrow keys and Home/End navigate toolbar
+controls when the focused control does not handle the key itself. Collapsed items
+leave the focus traversal, and focus returns from the menu when dismissed.
+
+Build and run the developer gallery (it does not install a desktop entry):
+
+```sh
+cmake --build build --target forma-components -j4
+./build/applications/component_gallery/forma-components
+MAYO_DEMO=overflow ./build/applications/component_gallery/forma-components --narrow
+```
+
+The gallery demonstrates regular/clear lenses, independently scrolling soft/hard
+edges and a resizable toolbar. It supports `MAYO_APPEARANCE`, `MAYO_SCALE`,
+`MAYO_RENDERER=gl|vulkan` and the existing `MAYO_SCREENSHOT` variables.
+
+| Light | Dark |
+| --- | --- |
+| ![Forma component gallery, light](screenshots/forma-components-light.png) | ![Forma component gallery, dark](screenshots/forma-components-dark.png) |
+
+[Narrow toolbar with overflow menu](screenshots/forma-components-overflow.png).
+
 ## Licensing notes
 
 Mayonnaise evokes the macOS design language but ships no Apple assets: text uses Inter (SIL Open Font
 License, see `assets/fonts/Inter-LICENSE.txt`) and all icons are drawn from vector primitives in
 `src/widgets/icons.cpp`. Vendored: glad (generated, MIT/Apache-2.0 headers), stb_image /
-stb_image_write (public domain).
+stb_image_write (public domain). Glass lens functions are adapted from MyGo
+(MIT); its license and attribution are in `third_party/mygo/` and included in
+the CMake application and library development install components.

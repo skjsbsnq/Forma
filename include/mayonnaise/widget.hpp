@@ -130,7 +130,7 @@ public:
     [[nodiscard]] bool isFocused() const;
     [[nodiscard]] bool isFocusVisible() const;
     [[nodiscard]] bool isEnabled() const;
-    [[nodiscard]] bool isVisible() const { return !m_hidden; }
+    [[nodiscard]] bool isVisible() const { return !m_hidden && !m_layoutSuppressed; }
     /// Frame time from the host (0 when detached).
     [[nodiscard]] double now() const;
     /// Samples an animation and keeps frames coming while it runs.
@@ -213,6 +213,9 @@ public:
     void notifyThemeChanged();
 
 private:
+    friend class ToolbarView;
+    // Container-owned visibility, separate from the application's hidden state.
+    bool m_layoutSuppressed = false;
     Widget* m_parent = nullptr;
     WidgetHost* m_host = nullptr;
     std::vector<std::shared_ptr<Widget>> m_children;

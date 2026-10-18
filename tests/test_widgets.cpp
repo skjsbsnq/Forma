@@ -255,3 +255,147 @@ TEST_CASE("Theme tokens differ between appearances") {
     CHECK(custom.colors.accent == Color::hex(0xFF0000));
     CHECK(custom.colors.focusRing.a < 1.0f);
 }
+
+TEST_CASE("Toolbar: trailing actions move into overflow and invoke the original command") {
+    int invoked = 0;
+    auto first = Button("First").width(80);
+    auto second = Button("Second").width(80);
+    auto last = Button("Last").width(80).onClick([&] { ++invoked; });
+    auto bar = Toolbar({first, second, last});
+    test::TestHost host;
+    host.attach(bar.node(), {220, 40});
+    CHECK(first.node()->isVisible());
+    CHECK(second.node()->isVisible());
+    CHECK_FALSE(last.node()->isVisible());
+    auto items = bar.node()->overflowItems();
+    REQUIRE(items.size() == 1);
+    CHECK(items[0].title == "Last");
+    items[0].action();
+    CHECK(invoked == 1);
+    last.setDisabled(true);
+    CHECK_FALSE(bar.node()->overflowItems()[0].enabled);
+    items[0].action();
+    CHECK(invoked == 1);
+    last.setDisabled(false);
+    last.node()->setHidden(true);
+    items[0].action();
+    CHECK(invoked == 1);
+    last.node()->setHidden(false);
+    host.attach(bar.node(), {400, 40});
+    CHECK(last.node()->isVisible());
+    CHECK(bar.node()->overflowItems().empty());
+}
+
+TEST_CASE("Toolbar: application-hidden actions stay hidden when resizing and disabling overflow") {
+    auto hidden = Button("Hidden").width(80).hidden();
+    auto action = Button("Action").width(120);
+    auto bar = Toolbar({hidden, action});
+    test::TestHost host;
+    host.attach(bar.node(), {60, 40});
+    REQUIRE(bar.node()->overflowItems().size() == 1);
+    CHECK_FALSE(hidden.node()->isVisible());
+    bar.overflow(false);
+    host.attach(bar.node(), {300, 40});
+    CHECK(action.node()->isVisible());
+    CHECK_FALSE(hidden.node()->isVisible());
+    CHECK(bar.node()->overflowItems().empty());
+}
+
+TEST_CASE("Toolbar: grouped toggles and segments retain live state and original callbacks") {
+    int changes = 0;
+    auto toggle = Toggle("Notify", true).onChange([&](bool) { ++changes; });
+    auto segments = SegmentedControl({"List", "Grid"}).onChange([&](int) { ++changes; });
+    auto group = ToolbarGroup({toggle, segments});
+    auto bar = Toolbar({group});
+    test::TestHost host;
+    host.attach(bar.node(), {60, 40});
+    auto items = bar.node()->overflowItems();
+    REQUIRE(items.size() == 3);
+    CHECK(items[0].checked);
+    CHECK(items[1].checked);
+    items[0].action();
+    items[2].action();
+    CHECK_FALSE(toggle.on());
+    CHECK(segments.selectedIndex() == 1);
+    CHECK(changes == 2);
+    items = bar.node()->overflowItems();
+    CHECK_FALSE(items[0].checked);
+    CHECK(items[2].checked);
+    group.setDisabled(true);
+    for (const auto& item : bar.node()->overflowItems()) CHECK_FALSE(item.enabled);
+}
+
+TEST_CASE("Toolbar: removed controls recover visibility and stale menu actions do not run") {
+    int invoked = 0;
+    auto action = Button("Action").width(120).onClick([&] { ++invoked; });
+    auto bar = Toolbar({action});
+    test::TestHost host;
+    host.attach(bar.node(), {60, 40});
+    auto items = bar.node()->overflowItems();
+    REQUIRE(items.size() == 1);
+    bar.remove(action);
+    CHECK(action.node()->isVisible());
+    items[0].action();
+    CHECK(invoked == 0);
+    bar.clear();
+    bar.add(action);
+    host.attach(bar.node(), {300, 40});
+    CHECK(action.node()->isVisible());
+    CHECK(bar.node()->overflowItems().empty());
+}
+
+TEST_CASE("Toolbar: overflow menu restores focus and collapsed controls leave keyboard navigation") {
+    auto first = Button("First").width(80);
+    auto last = Button("Last").width(80);
+    auto bar = Toolbar({first, last});
+    test::TestHost host;
+    host.attach(bar.node(), {300, 40});
+    host.setFocus(last.node().get(), true);
+    host.attach(bar.node(), {120, 40});
+    auto more = std::dynamic_pointer_cast<ButtonView>(bar.node()->children().back());
+    REQUIRE(more);
+    CHECK(host.focusedWidget() == more.get());
+    host.dispatcher.keyDown({Key::Enter});
+    REQUIRE(host.dispatcher.overlays().size() == 1);
+    host.dispatcher.keyDown({Key::Escape});
+    CHECK(host.dispatcher.overlays().empty());
+    CHECK(host.focusedWidget() == more.get());
+    host.dispatcher.keyDown({Key::Enter});
+    REQUIRE(host.dispatcher.overlays().size() == 1);
+    host.attach(bar.node(), {300, 40});
+    CHECK(host.dispatcher.overlays().empty());
+    CHECK(host.focusedWidget() == first.node().get());
+    host.dispatcher.keyDown({Key::Right});
+    CHECK(host.focusedWidget() == last.node().get());
+    host.dispatcher.keyDown({Key::Home});
+    CHECK(host.focusedWidget() == first.node().get());
+}
+
+TEST_CASE("Toolbar: custom inputs remain available and unnamed actions are not discarded") {
+    auto search = SearchField("Search").width(90);
+    auto unnamed = Button(Icon::Plus).width(30);
+    auto action = Button("Action").width(80);
+    auto bar = Toolbar({search, unnamed, action});
+    test::TestHost host;
+    host.attach(bar.node(), {160, 40});
+    CHECK(search.node()->isVisible());
+    CHECK(unnamed.node()->isVisible());
+    REQUIRE(bar.node()->overflowItems().size() == 1);
+    CHECK(bar.node()->overflowItems()[0].title == "Action");
+}
+
+TEST_CASE("Menu: keyboard activation cannot invoke a disabled item") {
+    int invoked = 0;
+    MenuItem disabled("Disabled", [&] { ++invoked; });
+    disabled.enabled = false;
+    auto menu = std::make_shared<MenuView>(std::vector<MenuItem>{disabled, MenuItem("Enabled", [&] { ++invoked; })});
+    test::TestHost host;
+    host.attach(menu);
+    host.setFocus(menu.get(), true);
+    menu->setHighlighted(0);
+    host.dispatcher.keyDown({Key::Enter});
+    CHECK(invoked == 0);
+    host.dispatcher.keyDown({Key::Down});
+    host.dispatcher.keyDown({Key::Enter});
+    CHECK(invoked == 1);
+}

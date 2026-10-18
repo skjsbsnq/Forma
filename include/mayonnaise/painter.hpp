@@ -50,6 +50,8 @@ public:
     /// Translucent blurred material ("glass") showing what was drawn underneath.
     void drawMaterial(const Rect& r, const CornerRadii& radii, Material material);
     void drawMaterial(const Rect& r, const CornerRadii& radii, const MaterialStyle& style);
+    /// An edge overlay over already-painted scrolling content. Does not affect hit testing.
+    void drawScrollEdge(const Rect& r, ScrollEdgeStyle style, bool bottom = false, float strength = 1);
 
     // Images & icons -------------------------------------------------------------------------
     /// Draws `image` stretched into `r` (sample `source`, in normalised 0..1 texture coordinates).

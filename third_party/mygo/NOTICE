@@ -1,0 +1,7 @@
+Portions of shaders/ui.frag (the glass lens profile and edge normal) are
+adapted from github.com/egoist/mygo, plugins/glass/glass.glsl, revision
+269e2f9a. Copyright (c) 2026 MyGo contributors. MIT license: see LICENSE.
+
+Forma adapts the functions to its signed-distance geometry, premultiplied
+rendering, shared OpenGL/Vulkan shader and regional backdrop blur.
+The scroll edge and toolbar interactions also draw on MyGo's design.

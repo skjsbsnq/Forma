@@ -84,6 +84,28 @@ void Painter::drawMaterial(const Rect& r, const CornerRadii& radii, const Materi
     if (style.border.a > 0) m_renderer.strokeRoundedRect(r, radii, style.border, 0.5f);
 }
 
+void Painter::drawScrollEdge(const Rect& r, ScrollEdgeStyle style, bool bottom, float strength) {
+    strength = std::clamp(strength, 0.0f, 1.0f);
+    if (style == ScrollEdgeStyle::None || strength == 0 || r.width <= 0 || r.height <= 0) return;
+    const Color bg = theme().colors.contentBackground;
+    if (style == ScrollEdgeStyle::Soft) {
+        const Color edge = bg.multipliedAlpha(0.85f * strength);
+        fillVerticalGradient(r, {}, bottom ? bg.withAlpha(0) : edge, bottom ? edge : bg.withAlpha(0));
+        return;
+    }
+    MaterialStyle material = theme().material(Material::Titlebar);
+    material.blurRadius = 6.4f;
+    material.saturation = 1.25f;
+    material.tint = bg.withAlpha(0.82f);
+    material.highlight = Color::transparent();
+    material.border = Color::transparent();
+    pushOpacity(strength);
+    drawMaterial(r, {}, material);
+    const float hairline = 1.0f / scale();
+    fillRect({r.x, bottom ? r.y : r.bottom() - hairline, r.width, hairline}, theme().colors.separator);
+    popOpacity();
+}
+
 void Painter::drawText(std::string_view text, Point baseline, const Font& font, const Color& color) {
     m_text.drawLine(m_renderer, text, baseline, font, color);
 }

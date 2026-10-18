@@ -18,6 +18,8 @@ function(mayonnaise_app name)
           DESTINATION ${CMAKE_INSTALL_DATADIR}/applications COMPONENT ${name})
   install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/data/${APP_ID}.svg
           DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps COMPONENT ${name})
+  install(FILES ${PROJECT_SOURCE_DIR}/third_party/mygo/LICENSE ${PROJECT_SOURCE_DIR}/third_party/mygo/NOTICE
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/${name}/mygo COMPONENT ${name})
 endfunction()
 
 add_subdirectory(photos)
@@ -33,3 +35,6 @@ add_subdirectory(mail)
 add_subdirectory(text_editor)
 add_subdirectory(app_store)
 add_subdirectory(portal)
+
+# Developer preview; no desktop integration or installation side effects.
+add_subdirectory(component_gallery)

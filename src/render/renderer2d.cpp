@@ -351,7 +351,10 @@ void Renderer2D::backdrop(const Rect& rect, const CornerRadii& radii, const Mate
     float b = std::round(rect.bottom() * s);
     if (culled(l, t, r, b)) return;
     flush();
-    rhi::Texture* blurred = blurScene(style.blurRadius * s, Rect::fromLTRB(l, t, r, b));
+    // Refraction can read beyond the panel. Include that footprint in the regional blur,
+    // otherwise another material's stale pixels can leak into the lens edge.
+    const float displacement = std::max(0.0f, style.refraction) * s;
+    rhi::Texture* blurred = blurScene(style.blurRadius * s, Rect::fromLTRB(l, t, r, b).outset(displacement));
     Instance& in = push(Type::Backdrop, l - 1, t - 1, r + 1, b + 1, blurred);
     in.shape[0] = (l + r) * 0.5f;
     in.shape[1] = (t + b) * 0.5f;
@@ -372,6 +375,13 @@ void Renderer2D::backdrop(const Rect& rect, const CornerRadii& radii, const Mate
     in.clip2[1] = m_opacity.back();
     in.params[2] = style.saturation;
     in.params[3] = style.noise;
+    in.uv[0] = std::max(0.0f, style.bezelWidth) * s;
+    in.uv[1] = displacement;
+    in.uv[2] = std::clamp(style.rimStrength, 0.0f, 1.0f);
+    in.uv[3] = s;
+    in.color2[0] = style.toneLow;
+    in.color2[1] = style.toneHigh;
+    in.color2[2] = std::max(0.01f, style.toneCurve);
     // The blur chain is reused by the next material, so draw this one right away.
     flush();
 }
