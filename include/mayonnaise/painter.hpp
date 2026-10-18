@@ -39,7 +39,9 @@ public:
                             Point end);
     /// Vertical gradient shorthand (top -> bottom).
     void fillVerticalGradient(const Rect& r, const CornerRadii& radii, const Color& top, const Color& bottom);
-    void drawShadow(const Rect& r, float radius, const Color& color, float blur, Vec2 offset = {}, float spread = 0);
+    /// With exterior=true, draw after the material to keep its backdrop free of self-shadow.
+    void drawShadow(const Rect& r, float radius, const Color& color, float blur, Vec2 offset = {}, float spread = 0,
+                    bool exterior = false);
     void drawLine(Point a, Point b, const Color& color, float width = 1);
     void fillTriangle(Point a, Point b, Point c, const Color& color, float cornerRadius = 0);
     void drawArc(Point center, float radius, float startAngle, float sweep, const Color& color, float width = 1);

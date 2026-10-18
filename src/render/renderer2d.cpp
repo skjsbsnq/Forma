@@ -198,7 +198,8 @@ void Renderer2D::fillGradient(const Rect& rect, const CornerRadii& radii, const 
     in.uv[3] = p1.y * s;
 }
 
-void Renderer2D::shadow(const Rect& rect, float radius, const Color& color, float blur, Vec2 offset, float spread) {
+void Renderer2D::shadow(const Rect& rect, float radius, const Color& color, float blur, Vec2 offset, float spread,
+                        bool exterior) {
     if (color.a <= 0) return;
     const float s = m_scale;
     Rect shape = rect.translated(offset).outset(spread);
@@ -218,6 +219,14 @@ void Renderer2D::shadow(const Rect& rect, float radius, const Color& color, floa
     in.radii[0] = std::min(std::max(0.0f, (radius + spread) * s), maxR);
     setColor(in.color, color);
     in.params[2] = sigma;
+    if (exterior) {
+        in.params[1] = 1;
+        in.uv[0] = rect.center().x * s;
+        in.uv[1] = rect.center().y * s;
+        in.uv[2] = rect.width * 0.5f * s;
+        in.uv[3] = rect.height * 0.5f * s;
+        in.color2[0] = std::clamp(radius * s, 0.0f, std::min(in.uv[2], in.uv[3]));
+    }
 }
 
 void Renderer2D::line(Point a, Point b, const Color& color, float width) {
@@ -273,7 +282,8 @@ void Renderer2D::arc(Point center, float radius, float startAngle, float sweep, 
     in.params[1] = hw;
 }
 
-void Renderer2D::image(const Rect& rect, rhi::Texture* texture, const Rect& uv, const CornerRadii& radii, float opacity) {
+void Renderer2D::image(const Rect& rect, rhi::Texture* texture, const Rect& uv, const CornerRadii& radii,
+                       float opacity) {
     const float s = m_scale;
     float l = std::round(rect.left() * s);
     float t = std::round(rect.top() * s);
@@ -429,8 +439,8 @@ void Renderer2D::flush() {
     m_device.beginPass(*m_scene);
     const float viewport[2] = {static_cast<float>(m_width), static_cast<float>(m_height)};
     rhi::Texture* const textures[3] = {m_batchTexture, m_extraTextures[0], m_extraTextures[1]};
-    m_device.draw(*m_program, textures, viewport, sizeof viewport,
-                  std::as_bytes(std::span(m_instances)), 4, static_cast<int>(m_instances.size()));
+    m_device.draw(*m_program, textures, viewport, sizeof viewport, std::as_bytes(std::span(m_instances)), 4,
+                  static_cast<int>(m_instances.size()));
     ++m_drawCalls;
     m_instances.clear();
     m_batchTexture = nullptr;
@@ -445,7 +455,8 @@ rhi::Texture* Renderer2D::blurScene(float radiusPx, const Rect& regionPx) {
 
     // Only blur around the region that will be sampled (plus the kernel footprint).
     const float margin = radiusPx * 2.0f + 16.0f;
-    Rect area = regionPx.outset(margin).intersected(Rect(0, 0, static_cast<float>(m_width), static_cast<float>(m_height)));
+    Rect area =
+        regionPx.outset(margin).intersected(Rect(0, 0, static_cast<float>(m_width), static_cast<float>(m_height)));
     auto scissorFor = [&](int w, int h) {
         float kx = static_cast<float>(w) / static_cast<float>(m_width);
         float ky = static_cast<float>(h) / static_cast<float>(m_height);

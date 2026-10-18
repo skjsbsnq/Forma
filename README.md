@@ -54,7 +54,9 @@ Forma 基于 [Mayonnaise](https://github.com/egely1337/mayonnaise) UI 框架，�
 
 ### 应用商店
 
-Forma 应用商店面向 Flatpak，提供浮动玻璃侧边栏、今日应用横幅、编辑精选卡片、应用网格与详情页。侧边栏、网格卡片文字与操作按钮复用 Forma 框架的 `Sidebar`、`Label` 和 `Button`；网格卡片图标统一为 64×64 逻辑像素并保持原始比例，文字自动省略，编辑精选区在窄窗口切换为单列。目录来自本机 AppStream 缓存，可离线浏览 3000+ 个应用；安装与更新通过 flatpak 执行并显示实时进度。
+<img src="applications/app_store/data/io.github.skjsbsnq.Forma.AppStore.svg" width="96" alt="Forma 应用商店图标">
+
+Forma 应用商店面向 Flatpak，采用彩色应用磁贴图标，提供浮动玻璃侧边栏、文案与截图分区的精选横幅、编辑精选卡片、应用网格与详情页。侧边栏、网格卡片文字与操作按钮复用 Forma 框架的 `Sidebar`、`Label` 和 `Button`；网格卡片图标统一为 64×64 逻辑像素并保持原始比例，文字自动省略，编辑精选区在窄窗口切换为单列。目录来自本机 AppStream 缓存，可离线浏览 3000+ 个应用；安装与更新通过 flatpak 执行并显示实时进度。
 
 | 精选 | 应用详情 |
 | --- | --- |
@@ -62,7 +64,7 @@ Forma 应用商店面向 Flatpak，提供浮动玻璃侧边栏、今日应用横
 
 [应用商店说明](applications/app_store/README.md)
 
-Arch Linux 用户可在本地构建并安装当前版本（`0.1.0-2`）：
+Arch Linux 用户可在本地构建并安装当前版本（`0.1.0-3`）：
 
 ```sh
 (cd packaging/arch-appstore && makepkg -sif)

@@ -3,10 +3,10 @@
 #include <cstdint>
 #include <vector>
 
-#include "rhi/rhi.hpp"
 #include "mayonnaise/color.hpp"
 #include "mayonnaise/geometry.hpp"
 #include "mayonnaise/theme.hpp"
+#include "rhi/rhi.hpp"
 
 namespace mayo::render {
 
@@ -36,7 +36,8 @@ public:
     /// Stroke outside or inside the shape edge: `inset` < 0 draws the stroke outside (focus rings).
     void strokeRoundedRect(const Rect& r, const CornerRadii& radii, const Color& color, float width);
     void fillGradient(const Rect& r, const CornerRadii& radii, const Color& from, const Color& to, Point p0, Point p1);
-    void shadow(const Rect& r, float radius, const Color& color, float blur, Vec2 offset = {}, float spread = 0);
+    void shadow(const Rect& r, float radius, const Color& color, float blur, Vec2 offset = {}, float spread = 0,
+                bool exterior = false);
     void line(Point a, Point b, const Color& color, float width);
     /// Filled triangle with optionally rounded corners (radius grows it outwards).
     void triangle(Point a, Point b, Point c, const Color& color, float cornerRadius = 0);
@@ -73,13 +74,13 @@ private:
         float color2[4];
         float uv[4];
         float params[4];
-        float clip[4];     // plain clip: intersection of every pushed rect
-        float rclip[4];    // innermost rounded clip rect
-        float clip2[4];    // rounded clip radius, group opacity (backdrops), -, -
+        float clip[4];   // plain clip: intersection of every pushed rect
+        float rclip[4];  // innermost rounded clip rect
+        float clip2[4];  // rounded clip radius, group opacity (backdrops), -, -
     };
     struct Clip {
-        float l, t, r, b;               // pixels, intersection of all clips
-        float rl, rt, rr, rb, radius;   // innermost rounded clip
+        float l, t, r, b;              // pixels, intersection of all clips
+        float rl, rt, rr, rb, radius;  // innermost rounded clip
     };
     enum class Type : int { Fill = 0, Shadow, Image, Glyph, Line, Gradient, Backdrop, Arc, Triangle, Video };
 

@@ -1,5 +1,7 @@
 # Forma 应用商店
 
+<img src="data/io.github.skjsbsnq.Forma.AppStore.svg" width="128" alt="Forma 应用商店图标">
+
 面向 Flatpak 的桌面应用商店，界面以 macOS 26 Tahoe 的 App Store 为视觉基准：浮动玻璃侧边栏、统一工具栏、圆角应用卡片、编辑精选横幅与详情页。应用完全由 Forma（Mayonnaise）框架自行绘制，不依赖 GTK、Qt 或 WebView。
 
 ![Forma 应用商店首页](../../docs/screenshots/forma-store-home.png)
@@ -53,7 +55,9 @@ flatpak remote-ls --app >/dev/null   # 生成 /var/lib/flatpak/appstream 缓存
 
 ### 布局与框架组件
 
-侧边栏复用 Forma `Sidebar`（选择动画、滚动与键盘导航），应用网格卡片的文字和操作复用 `Label`、`Button`，底部设置入口使用框架按钮。Hero、精选图片与卡片背景保留定制绘制。
+侧边栏复用 Forma `Sidebar`（选择动画、滚动与键盘导航），应用网格卡片的文字和操作复用 `Label`、`Button`，底部设置入口使用框架按钮。页面标题、分区操作、版本说明和介绍的展开按钮也复用框架控件。Hero、精选图片与卡片背景保留定制绘制。
+
+首页横幅将文字与完整比例的应用截图分区展示，支持左右方向键切换与回车打开。版本说明根据文字实际换行计算高度，长介绍展开后可通过“收起”恢复。
 
 应用卡片使用固定 64×64 逻辑像素图标并保持图片比例，卡片高度不随列宽放大；名称与摘要单行省略，操作按钮单独排列。编辑精选区在内容宽度不足 700 逻辑像素时切换为单列。
 
@@ -100,7 +104,7 @@ applications/app_store/
   tests/         目录解析、搜索、JSON 与真实缓存的单元测试
 ```
 
-`catalog.cpp` 不依赖 UI，可在无显示环境下测试：
+目录解析、搜索与界面回归测试可在无显示环境下运行，覆盖介绍展开/收起、版本说明高度与横幅按钮点击：
 
 ```sh
 ctest --test-dir build -R forma_store_tests --output-on-failure
@@ -115,7 +119,7 @@ cmake --build build --target forma-app-store
 sudo cmake --install build --component forma-app-store
 ```
 
-Arch Linux 当前打包版本为 `0.1.0-2`，在仓库根目录执行：
+Arch Linux 当前打包版本为 `0.1.0-3`，在仓库根目录执行：
 
 ```sh
 (cd packaging/arch-appstore && makepkg -sif)
@@ -125,7 +129,7 @@ forma-app-store
 如已构建安装包，也可直接安装或升级：
 
 ```sh
-sudo pacman -U packaging/arch-appstore/forma-appstore-0.1.0-2-x86_64.pkg.tar.zst
+sudo pacman -U packaging/arch-appstore/forma-appstore-0.1.0-3-x86_64.pkg.tar.zst
 ```
 
 升级后关闭旧窗口并重新启动。安装包在本地生成，不随源码仓库分发。

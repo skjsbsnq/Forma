@@ -40,12 +40,16 @@ mayonnaise_set_warnings(text_editor_tests)
 mayonnaise_set_sanitizers(text_editor_tests)
 add_test(NAME text_editor_tests COMMAND text_editor_tests)
 
-# App Store catalogue parsing and search run without a display server.
+# App Store catalogue and UI layout regressions run without a display server.
 if(TARGET forma-app-store)
+  pkg_check_modules(FORMA_STORE_TEST_CURL REQUIRED IMPORTED_TARGET libcurl)
   add_executable(forma_store_tests ${PROJECT_SOURCE_DIR}/applications/app_store/tests/catalog_tests.cpp
+                 ${PROJECT_SOURCE_DIR}/applications/app_store/tests/ui_tests.cpp
+                 ${PROJECT_SOURCE_DIR}/applications/app_store/store_ui.cpp
+                 ${PROJECT_SOURCE_DIR}/applications/app_store/images.cpp
                  ${PROJECT_SOURCE_DIR}/applications/app_store/catalog.cpp
                  ${PROJECT_SOURCE_DIR}/applications/app_store/json_lite.cpp)
-  target_link_libraries(forma_store_tests PRIVATE mayonnaise::mayonnaise doctest::doctest)
+  target_link_libraries(forma_store_tests PRIVATE mayonnaise::mayonnaise doctest::doctest PkgConfig::FORMA_STORE_TEST_CURL)
   target_include_directories(forma_store_tests PRIVATE ${PROJECT_SOURCE_DIR}/applications/app_store
                              ${PROJECT_SOURCE_DIR}/include)
   mayonnaise_set_warnings(forma_store_tests)

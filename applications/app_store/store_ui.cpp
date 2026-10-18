@@ -294,80 +294,52 @@ private:
 /// Large page heading (title + optional subtitle and trailing action).
 class HeadingView : public Widget {
 public:
-    HeadingView(std::string title, std::string subtitle, std::string action = {}, std::function<void()> onAction = {})
-        : m_title(std::move(title)), m_subtitle(std::move(subtitle)), m_action(std::move(action)),
-          m_onAction(std::move(onAction)) {}
-
-    void setTitle(std::string title) {
-        m_title = std::move(title);
-        invalidateLayout();
-    }
-    Size measureContent(Size available) override { return {available.width, m_subtitle.empty() ? 40.0f : 62.0f}; }
-    [[nodiscard]] bool expandsContent(Axis axis) const override { return axis == Axis::Horizontal; }
-    bool onPointerDown(const PointerEvent& e) override {
-        if (m_onAction && actionRect().contains(e.position)) return true;
-        return false;
-    }
-    void onPointerUp(const PointerEvent& e) override {
-        if (m_onAction && actionRect().contains(e.position)) m_onAction();
-    }
-    [[nodiscard]] bool isInteractive() const override { return static_cast<bool>(m_onAction); }
-    void draw(Painter& p) override {
-        const Theme& t = theme();
-        const Rect r = frame();
-        p.drawText(m_title, {r.x, r.y, r.width - 140, 38}, titleFont(), t.colors.label);
-        if (!m_subtitle.empty())
-            p.drawText(m_subtitle, {r.x, r.y + 36, r.width - 140, 18}, t.font(TextStyle::Body),
-                       t.colors.secondaryLabel);
-        if (!m_action.empty()) {
-            const Rect a = actionRect();
-            if (isHovered()) p.fillRoundedRect(a.inset(-10, -4), 8, t.colors.hover);
-            p.drawText(m_action, a, t.font(TextStyle::Body).withWeight(FontWeight::Medium), t.colors.accent,
-                       TextAlign::Trailing);
+    HeadingView(std::string title, std::string subtitle, std::string action = {},
+                std::function<void()> onAction = {}, bool section = false)
+        : m_section(section) {
+        m_title = Label(std::move(title)).font(section ? headingFont() : titleFont()).lineLimit(1).node();
+        addChild(m_title);
+        if (!subtitle.empty()) {
+            m_subtitle = Label(std::move(subtitle)).secondary().lineLimit(1).node();
+            addChild(m_subtitle);
+        }
+        if (!action.empty() && onAction) {
+            m_action = Button(std::move(action)).style(ButtonStyle::Borderless).controlSize(ControlSize::Small)
+                           .onClick(std::move(onAction)).node();
+            addChild(m_action);
         }
     }
-    void onPointerMove(const PointerEvent& e) override {
-        if (host()) host()->setCursor(m_onAction && actionRect().contains(e.position) ? CursorShape::PointingHand
-                                                                                       : CursorShape::Arrow);
+    void setTitle(std::string title) { m_title->setText(std::move(title)); }
+    Size measureContent(Size available) override {
+        return {available.width, m_section ? 32.0f : (m_subtitle ? 66.0f : 40.0f)};
     }
-
+    [[nodiscard]] bool expandsContent(Axis axis) const override { return axis == Axis::Horizontal; }
+    void arrangeContent(const Rect& r) override {
+        float actionWidth = 0;
+        if (m_action) {
+            actionWidth = std::min(120.0f, m_action->measure({120, 28}).width);
+            m_action->arrange({r.right() - actionWidth, r.y + 2, actionWidth, 28});
+        }
+        const float width = std::max(0.0f, r.width - (m_action ? actionWidth + 16 : 0));
+        const float height = m_section ? 28 : 38;
+        m_title->measure({width, height});
+        m_title->arrange({r.x, r.y, width, height});
+        if (m_subtitle) {
+            m_subtitle->measure({r.width, 22});
+            m_subtitle->arrange({r.x, r.y + 42, r.width, 22});
+        }
+    }
+    void draw(Painter& p) override { paintChildren(p); }
 private:
-    [[nodiscard]] Rect actionRect() const {
-        const Rect r = frame();
-        return {r.right() - 120, r.y + 6, 120, 26};
-    }
-    std::string m_title, m_subtitle, m_action;
-    std::function<void()> m_onAction;
+    bool m_section;
+    std::shared_ptr<LabelView> m_title, m_subtitle;
+    std::shared_ptr<ButtonView> m_action;
 };
 
-/// Section heading ("本周精选", "为你推荐").
-class SectionHeadingView : public Widget {
+class SectionHeadingView : public HeadingView {
 public:
     SectionHeadingView(std::string title, std::string action = {}, std::function<void()> onAction = {})
-        : m_title(std::move(title)), m_action(std::move(action)), m_onAction(std::move(onAction)) {}
-
-    Size measureContent(Size available) override { return {available.width, 28}; }
-    [[nodiscard]] bool expandsContent(Axis axis) const override { return axis == Axis::Horizontal; }
-    void draw(Painter& p) override {
-        const Theme& t = theme();
-        const Rect r = frame();
-        p.drawText(m_title, {r.x, r.y, r.width - 120, 28}, headingFont(), t.colors.label);
-        if (!m_action.empty()) {
-            const Rect a{r.right() - 120, r.y, 120, 26};
-            p.drawText(m_action, a, t.font(TextStyle::Body), t.colors.accent, TextAlign::Trailing);
-        }
-    }
-    bool onPointerDown(const PointerEvent& e) override {
-        return m_onAction && Rect{frame().right() - 120, frame().y, 120, 26}.contains(e.position);
-    }
-    void onPointerUp(const PointerEvent& e) override {
-        if (m_onAction && Rect{frame().right() - 120, frame().y, 120, 26}.contains(e.position)) m_onAction();
-    }
-    [[nodiscard]] bool isInteractive() const override { return static_cast<bool>(m_onAction); }
-
-private:
-    std::string m_title, m_action;
-    std::function<void()> m_onAction;
+        : HeadingView(std::move(title), {}, std::move(action), std::move(onAction), true) {}
 };
 
 // --- app cards -----------------------------------------------------------------------------------
@@ -587,58 +559,38 @@ public:
         const AppEntry* app = m_model.find(ids[static_cast<std::size_t>(index)]);
         if (!app) return;
         if (app->screenshots.empty() && app->summary.empty()) return;
-        const float radius = 22;
+        const float radius = 20;
+        const Color tint = accentFor(*app);
+        p.fillVerticalGradient(r, radius, Color::hex(0x243C5A).mix(tint, 0.18f),
+                               Color::hex(0x101C30).mix(tint, 0.12f));
+        const Rect preview{r.x + r.width * 0.48f, r.y + 22, r.width * 0.52f - 22, r.height - 44};
+        p.fillRoundedRect(preview, 12, Color::white(0.06f));
         bool drawn = false;
         if (!app->screenshots.empty()) {
-            const Screenshot& shot = app->screenshots.front();
+            const auto& shot = app->screenshots.front();
             if (auto img = m_model.images.screenshot(shot.width >= 1200 ? shot.source : shot.thumbnail, 1800)) {
-                const float ia = static_cast<float>(img->width()) / static_cast<float>(std::max(1, img->height()));
-                const float ra = r.width / std::max(1.0f, r.height);
-                Rect src{0, 0, 1, 1};
-                if (ia > ra) {
-                    src.width = ra / ia;
-                    src.x = (1 - src.width) * 0.5f;
-                } else {
-                    src.height = ia / ra;
-                    src.y = (1 - src.height) * 0.5f;
-                }
-                p.drawImage(r, *img, radius, 1, src);
+                const float scale = std::min(preview.width / std::max(1, img->width()),
+                                             preview.height / std::max(1, img->height()));
+                const float w = img->width() * scale, h = img->height() * scale;
+                p.drawImage({preview.center().x - w * 0.5f, preview.center().y - h * 0.5f, w, h}, *img, 8);
                 drawn = true;
             }
         }
         if (!drawn) {
-            const Color tint = accentFor(*app);
-            p.fillVerticalGradient(r, radius, tint.lighter(0.2f), tint.lighter(-0.45f));
+            const Rect icon{preview.center().x - 40, preview.center().y - 40, 80, 80};
+            drawAppIcon(p, m_model, *app, icon, 16);
         }
-        p.pushClip(r, radius);
-        // Scrims keep white text legible over any screenshot: a left-to-right shade for the title and
-        // a bottom shade under the title block.
-        for (int i = 0; i < 26; ++i) {
-            const float t = static_cast<float>(i) / 25.0f;
-            const float w = r.width * (0.80f * (1 - t) + 0.05f);
-            p.fillRect({r.x, r.y, w, r.height}, Color::black(0.034f));
-        }
-        for (int i = 0; i < 30; ++i) {
-            const float t = static_cast<float>(i) / 29.0f;
-            const float h = 250.0f * (1 - t) + 6;
-            p.fillRect({r.x, r.bottom() - h, r.width, h}, Color::black(0.041f));
-        }
-        p.popClip();
-        p.strokeRoundedRect(r, radius, Color::white(0.16f), 0.5f);
-
-        const float x = r.x + 34;
-        const float textW = std::min(r.width * 0.62f, 620.0f);
-        // Label, name and summary stack above the action row, like the App Store's editorial banner.
+        p.strokeRoundedRect(preview, 12, Color::white(0.10f), 0.5f);
+        const float x = r.x + 30;
+        const float textW = std::max(0.0f, preview.x - x - 26);
         const float chipY = r.bottom() - 60;
-        p.drawText("今日应用", {x, chipY - 96, 200, 18}, Font{11, FontWeight::Semibold, 14}, Color::white(0.80f));
-        float y = chipY - 78;
-        for (const auto& line : wrapText(p, app->name, titleFont(), textW, 2)) {
-            p.drawText(line, {x, y, textW, 36}, titleFont(), Color::white());
-            y += 34;
+        p.drawText("发现好应用", {x, r.y + 28, textW, 18}, Font{11, FontWeight::Semibold, 14}, Color::white(0.65f));
+        p.drawText(cutText(p, app->name, titleFont(), textW), {x, r.y + 58, textW, 38}, titleFont(), Color::white());
+        float y = r.y + 108;
+        for (const auto& line : wrapText(p, app->summary, cardTitleFont(), textW, 2)) {
+            p.drawText(line, {x, y, textW, 20}, cardTitleFont(), Color::white(0.75f));
+            y += 20;
         }
-        if (!app->summary.empty())
-            p.drawText(cutText(p, app->summary, cardTitleFont(), textW), {x, y + 2, textW, 20}, cardTitleFont(),
-                       Color::white(0.86f));
 
         const Rect chip{x, chipY, 94, 32};
         p.drawShadow(chip, 16, Color::black(0.18f), 10, {0, 2});
@@ -647,7 +599,7 @@ public:
         p.drawText("查看", chip, Font{13, FontWeight::Medium, 18}, Color::white(), TextAlign::Center);
 
         const float dotY = r.bottom() - 34;
-        float dotX = r.center().x - static_cast<float>(ids.size()) * 7.0f;
+        float dotX = preview.x - static_cast<float>(ids.size()) * 14.0f - 12;
         for (std::size_t i = 0; i < ids.size(); ++i) {
             const bool active = static_cast<int>(i) == index;
             p.fillCircle({dotX + static_cast<float>(i) * 14.0f, dotY}, active ? 3.6f : 3.0f,
@@ -665,8 +617,8 @@ public:
 
     void onPointerMove(const PointerEvent& e) override {
         const Rect r = frame();
-        const bool prev = e.position.x < r.x + 44;
-        const bool next = e.position.x > r.right() - 44;
+        const bool prev = Rect{r.x + 3, r.center().y - 20, 34, 40}.contains(e.position);
+        const bool next = Rect{r.right() - 37, r.center().y - 20, 34, 40}.contains(e.position);
         const bool chip = e.position.x < r.x + 150 && e.position.y > r.bottom() - 74;
         if (prev != m_hoverPrev || next != m_hoverNext || chip != m_hoverChip) {
             m_hoverPrev = prev;
@@ -685,12 +637,12 @@ public:
         const Rect r = frame();
         const auto& ids = heroOrder();
         if (ids.empty()) return;
-        if (e.position.x < r.x + 44) {
+        if (Rect{r.x + 3, r.center().y - 20, 34, 40}.contains(e.position)) {
             m_model.heroIndex = (m_model.heroIndex + static_cast<int>(ids.size()) - 1) % static_cast<int>(ids.size());
             invalidate();
             return;
         }
-        if (e.position.x > r.right() - 44) {
+        if (Rect{r.right() - 37, r.center().y - 20, 34, 40}.contains(e.position)) {
             m_model.heroIndex = (m_model.heroIndex + 1) % static_cast<int>(ids.size());
             invalidate();
             return;
@@ -700,6 +652,24 @@ public:
                               static_cast<int>(ids.size());
             if (m_model.callbacks.openApp) m_model.callbacks.openApp(ids[static_cast<std::size_t>(index)]);
         }
+    }
+    [[nodiscard]] bool acceptsFocus() const override { return true; }
+    bool onKeyDown(const KeyEvent& e) override {
+        const auto& ids = heroOrder();
+        if (ids.empty()) return false;
+        if (e.key == Key::Left || e.key == Key::Right) {
+            m_model.heroIndex = (m_model.heroIndex + static_cast<int>(ids.size()) +
+                                (e.key == Key::Right ? 1 : -1)) % static_cast<int>(ids.size());
+            invalidate();
+            return true;
+        }
+        if ((e.key == Key::Enter || e.key == Key::Space) && m_model.callbacks.openApp) {
+            const int index = ((m_model.heroIndex % static_cast<int>(ids.size())) + static_cast<int>(ids.size())) %
+                              static_cast<int>(ids.size());
+            m_model.callbacks.openApp(ids[static_cast<std::size_t>(index)]);
+            return true;
+        }
+        return false;
     }
     [[nodiscard]] bool isInteractive() const override { return true; }
 
@@ -1073,7 +1043,7 @@ public:
         const Rect icon{r.x, r.y + 2, 104, 104};
         drawAppIcon(p, m_model, *app, icon, 24);
         const float x = icon.right() + 22;
-        const float textW = std::max(80.0f, r.width - (x - r.x) - 130);
+        const float textW = std::max(80.0f, r.width - (x - r.x) - 174);
         p.drawText(cutText(p, app->name, titleFont(), textW), {x, r.y - 4, textW, 38}, titleFont(), t.colors.label);
         if (!app->summary.empty())
             p.drawText(cutText(p, app->summary, cardTitleFont(), textW), {x, r.y + 38, textW, 20}, cardTitleFont(),
@@ -1093,7 +1063,7 @@ public:
         drawActionChip(p, m_model, *app, chip, m_hoverChip);
         if (app->installed && !app->installedVersion.empty()) {
             const Font f = smallFont();
-            const std::string text = "已安装 " + app->installedVersion;
+            const std::string text = cutText(p, "已安装 " + app->installedVersion, f, 150);
             const float w = p.measureText(text, f);
             p.drawText(text, {r.right() - w, r.y + 44, w, 14}, f, t.colors.tertiaryLabel);
         }
@@ -1260,37 +1230,32 @@ private:
 /// Release notes block: version + date on one line, then the wrapped notes.
 class ReleaseView : public Widget {
 public:
-    ReleaseView(std::string version, std::string date, std::string notes)
-        : m_version(std::move(version)), m_date(std::move(date)), m_notes(std::move(notes)) {}
+    ReleaseView(std::string version, std::string date, std::string notes) {
+        m_title = Label(version.empty() ? "版本说明" : "版本 " + version)
+                      .font(TextStyle::Headline).lineLimit(1).node();
+        m_date = Label(std::move(date)).font(smallFont()).secondary().lineLimit(1).node();
+        m_notes = Label(notes.empty() ? "开发者未提供此版本的更新说明。" : std::move(notes))
+                      .verbatim().secondary().node();
+        addChild(m_title);
+        addChild(m_date);
+        addChild(m_notes);
+    }
     Size measureContent(Size available) override {
-        const int lines = std::max(1, static_cast<int>(m_notes.size() / 70) + 1);
-        return {available.width, 30 + static_cast<float>(std::min(lines, 12)) * 19};
+        return {available.width, 30 + m_notes->measure({available.width, kInfinity}).height};
     }
     [[nodiscard]] bool expandsContent(Axis axis) const override { return axis == Axis::Horizontal; }
-    void draw(Painter& p) override {
-        const Rect r = frame();
-        const Theme& t = theme();
-        const std::string title = m_version.empty() ? "版本说明" : "版本 " + m_version;
-        p.drawText(title, {r.x, r.y, r.width * 0.6f, 20}, t.font(TextStyle::Headline), t.colors.label);
-        if (!m_date.empty()) {
-            const Font f = smallFont();
-            const float w = p.measureText(m_date, f);
-            p.drawText(m_date, {r.right() - w, r.y + 3, w, 16}, f, t.colors.secondaryLabel);
-        }
-        const std::string text = m_notes.empty() ? "本次更新包含错误修复和性能改进。" : m_notes;
-        float y = r.y + 26;
-        for (const auto& line : wrapText(p, text, t.font(TextStyle::Body), r.width, 12)) {
-            if (line.empty()) {
-                y += 8;
-                continue;
-            }
-            p.drawText(line, {r.x, y, r.width, 19}, t.font(TextStyle::Body), t.colors.secondaryLabel);
-            y += 19;
-        }
+    void arrangeContent(const Rect& r) override {
+        const float dateWidth = m_date->text().empty() ? 0 : std::min(110.0f, r.width * 0.3f);
+        m_title->measure({r.width - dateWidth - 12, 22});
+        m_title->arrange({r.x, r.y, r.width - dateWidth - 12, 22});
+        m_date->measure({dateWidth, 18});
+        m_date->arrange({r.right() - dateWidth, r.y + 3, dateWidth, 18});
+        const auto notes = m_notes->measure({r.width, kInfinity});
+        m_notes->arrange({r.x, r.y + 30, r.width, notes.height});
     }
-
+    void draw(Painter& p) override { paintChildren(p); }
 private:
-    std::string m_version, m_date, m_notes;
+    std::shared_ptr<LabelView> m_title, m_date, m_notes;
 };
 
 /// A long description: six lines with a "更多 / 收起" toggle. The framework's LabelView does the wrapping,
@@ -1304,18 +1269,13 @@ public:
         m_label->setColorRole(LabelColor::Secondary);
         m_label->setLineLimit(6);
         addChild(m_label);
-        m_toggle = std::make_shared<CanvasView>([](Painter& p, const Rect& r) {
-            const auto& t = theme();
-            p.drawText("更多", r, t.font(TextStyle::Body).withWeight(FontWeight::Medium), t.colors.accent);
-        });
-        m_toggle->setOnClick([this](Point) {
-            m_expanded = !m_expanded;
-            m_label->setLineLimit(m_expanded ? 0 : 6);
-            invalidateLayout();
-            if (parent()) parent()->invalidateLayout();
-        });
-        m_toggle->setFixedWidth(44);
-        m_toggle->setFixedHeight(20);
+        m_toggle = Button("更多").style(ButtonStyle::Borderless).controlSize(ControlSize::Small)
+                       .onClick([this] {
+                           m_expanded = !m_expanded;
+                           m_label->setLineLimit(m_expanded ? 0 : 6);
+                           m_toggle->setTitle(m_expanded ? "收起" : "更多");
+                           invalidateLayout();
+                       }).node();
         addChild(m_toggle);
         // A second, hidden label without a line limit tells us whether the text was truncated at all.
         m_full = std::make_shared<LabelView>(m_label->text());
@@ -1327,22 +1287,25 @@ public:
     Size measureContent(Size available) override {
         const Size label = m_label->measure({available.width, kInfinity});
         const Size full = m_full->measure({available.width, kInfinity});
-        m_truncated = full.height > label.height + 1;
-        return {available.width, label.height + (m_truncated ? 24 : 0)};
+        m_truncated = m_expanded || full.height > label.height + 1;
+        return {available.width, label.height + (m_truncated ? 32 : 0)};
     }
     [[nodiscard]] bool expandsContent(Axis axis) const override { return axis == Axis::Horizontal; }
     void arrangeContent(const Rect& content) override {
         const Size label = m_label->measure({content.width, kInfinity});
         m_label->arrange({content.x, content.y, content.width, label.height});
         m_toggle->setHidden(!m_truncated);
-        if (m_truncated) m_toggle->arrange({content.x, content.y + label.height + 4, 44, 20});
+        if (m_truncated) {
+            m_toggle->measure({56, 28});
+            m_toggle->arrange({content.x, content.y + label.height + 4, 56, 28});
+        }
     }
     void draw(Painter& p) override { paintChildren(p); }
 
 private:
     std::shared_ptr<LabelView> m_label;
     std::shared_ptr<LabelView> m_full;
-    std::shared_ptr<CanvasView> m_toggle;
+    std::shared_ptr<ButtonView> m_toggle;
     bool m_expanded = false;
     bool m_truncated = false;
 };
@@ -1497,7 +1460,7 @@ std::shared_ptr<Widget> discoverPage(StoreModel& model) {
         if (picks.size() >= 6) break;
         if (model.find(id)) picks.push_back(id);
     }
-    page->add(Element(std::make_shared<SectionHeadingView>("本周精选", "查看全部", [&model] {
+    page->add(Element(std::make_shared<SectionHeadingView>("本周精选", "探索创意", [&model] {
         if (model.callbacks.openSection) model.callbacks.openSection("create");
     })));
     page->add(Element(std::make_shared<CardRowView>(model, picks, kCard)));

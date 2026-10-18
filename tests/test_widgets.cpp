@@ -399,3 +399,34 @@ TEST_CASE("Menu: keyboard activation cannot invoke a disabled item") {
     host.dispatcher.keyDown({Key::Enter});
     CHECK(invoked == 1);
 }
+
+TEST_CASE("Glass panels share their optical surface in both appearances") {
+    for (auto appearance : {Appearance::Light, Appearance::Dark}) {
+        const auto t = Theme::make(appearance);
+        const auto glass = t.material(Material::Glass);
+        for (auto role : {Material::Menu, Material::Popover, Material::Sidebar, Material::Titlebar}) {
+            const auto panel = t.material(role);
+            CHECK(panel.tint == glass.tint);
+            CHECK(panel.bezelWidth == glass.bezelWidth);
+            CHECK(panel.refraction == glass.refraction);
+            CHECK(panel.rimStrength == glass.rimStrength);
+            CHECK(panel.toneLow == glass.toneLow);
+            CHECK(panel.toneHigh == glass.toneHigh);
+            CHECK(panel.noise == glass.noise);
+            CHECK(panel.blurRadius >= glass.blurRadius);
+        }
+    }
+}
+
+TEST_CASE("Menu columns do not shift when checks or icons are added") {
+    test::TestHost host;
+    auto menu = std::make_shared<MenuView>(std::vector<MenuItem>{MenuItem("Same title")});
+    host.attach(menu);
+    const auto plain = menu->measureContent({800, 800});
+    menu->setItems({MenuItem("Same title").setChecked(true)});
+    CHECK(menu->measureContent({800, 800}).width == plain.width);
+    menu->setItems({MenuItem("Same title").withIcon(Icon::Document)});
+    CHECK(menu->measureContent({800, 800}).width == plain.width);
+    menu->setItems({MenuItem("Same title").withIcon(Icon::Document).setChecked(true)});
+    CHECK(menu->measureContent({800, 800}).width == plain.width);
+}

@@ -1,5 +1,5 @@
-#include "mayonnaise/ui_translation.hpp"
 #include "mayonnaise/widgets/button.hpp"
+#include "mayonnaise/ui_translation.hpp"
 
 #include <cmath>
 
@@ -20,7 +20,9 @@ Font buttonFont(ControlSize size, ButtonStyle style) {
     return f;
 }
 
-float iconSize(ControlSize size) { return size == ControlSize::Small ? 12.0f : size == ControlSize::Large ? 16.0f : 14.0f; }
+float iconSize(ControlSize size) {
+    return size == ControlSize::Small ? 12.0f : size == ControlSize::Large ? 16.0f : 14.0f;
+}
 
 }  // namespace
 
@@ -98,10 +100,10 @@ void ButtonView::draw(Painter& p) {
             break;
         }
         case ButtonStyle::Glass: {
-            p.drawShadow(r, radius, c.shadow.multipliedAlpha(0.5f), 8.0f, {0, 2});
             MaterialStyle glass = t.material(Material::Glass);
             glass.tint = glass.tint.mix(dark ? Color::white(0.16f) : Color::white(0.6f), hover * 0.5f + press * 0.5f);
             p.drawMaterial(r, radius, glass);
+            p.drawShadow(r, radius, c.shadow.multipliedAlpha(0.5f), 8.0f, {0, 2}, 0, true);
             break;
         }
     }

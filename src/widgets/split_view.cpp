@@ -126,8 +126,8 @@ void SplitViewView::draw(Painter& p) {
         // Floating Liquid Glass panel.
         Rect panel = sidebarPanel();
         const float radius = std::max(t.metrics.sidebarRadius, t.metrics.windowRadius - t.metrics.sidebarInset);
-        p.drawShadow(panel, radius, Color::black(t.isDark() ? 0.45f : 0.16f), 20, {0, 4});
         p.drawMaterial(panel, radius, Material::Sidebar);
+        p.drawShadow(panel, radius, Color::black(t.isDark() ? 0.45f : 0.16f), 20, {0, 4}, 0, true);
         p.pushClip(panel, radius);
         m_sidebar->paint(p);
         p.popClip();

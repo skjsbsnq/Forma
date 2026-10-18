@@ -49,58 +49,41 @@ Font Theme::font(TextStyle style) const {
 
 MaterialStyle Theme::material(Material m) const {
     const bool dark = isDark();
+    // One optical surface for every glass component. Roles vary only the frost
+    // footprint, so menus and submenus cannot silently fall back to a flat fill.
     MaterialStyle s;
-    s.highlight = dark ? Color::white(0.14f) : Color::white(0.75f);
-    s.border = dark ? Color::white(0.10f) : Color::black(0.07f);
+    s.blurRadius = 8;
+    s.saturation = 1.3f;
+    s.noise = 0.003f;
+    s.tint = Color::white(0.04f);
+    s.highlight = Color::transparent();
+    s.border = dark ? Color::white(0.16f) : Color::black(0.09f);
+    s.bezelWidth = 12;
+    s.refraction = 8;
+    s.rimStrength = dark ? 0.22f : 0.32f;
+    // Keep backdrop contrast: lifting black all the way to 0.5 erased the
+    // frost on pale file lists, even though the blur pass was running.
+    s.toneLow = dark ? 0.07f : 0.22f;
+    s.toneHigh = dark ? 0.42f : 0.97f;
     switch (m) {
         case Material::Sidebar:
-            s.blurRadius = 14;
-            s.tint = dark ? Color::rgb8(26, 28, 34, 0.18f) : Color::rgb8(246, 249, 255, 0.22f);
-            s.saturation = 1.55f;
-            s.bezelWidth = 22;
-            s.refraction = 24;
-            s.rimStrength = dark ? 0.58f : 0.68f;
-            s.toneLow = dark ? 0.06f : 0.40f;
-            s.toneHigh = dark ? 0.34f : 1.0f;
-            s.highlight = Color::transparent();
-            s.border = dark ? Color::white(0.22f) : Color::white(0.65f);
+            s.blurRadius = 24;
+            break;
+        case Material::Menu:
+        case Material::Popover:
+            s.blurRadius = 12;
             break;
         case Material::Titlebar:
             s.blurRadius = 20;
-            s.tint = dark ? Color::rgb8(34, 34, 36, 0.72f) : Color::rgb8(250, 250, 252, 0.72f);
-            s.highlight = Color::transparent();
+            // A continuous scroll surface has no enclosing panel outline.
             s.border = Color::transparent();
             break;
-        case Material::Popover:
-        case Material::Menu:
-            s.blurRadius = 8;
-            s.tint = dark ? Color::rgb8(24, 26, 32, 0.16f) : Color::rgb8(250, 252, 255, 0.18f);
-            s.saturation = 1.5f;
-            s.bezelWidth = 18;
-            s.refraction = 22;
-            s.rimStrength = dark ? 0.58f : 0.68f;
-            s.toneLow = dark ? 0.08f : 0.56f;
-            s.toneHigh = dark ? 0.36f : 1.0f;
-            s.highlight = Color::transparent();
-            s.border = dark ? Color::white(0.24f) : Color::white(0.72f);
-            break;
         case Material::Glass:
+            break;
         case Material::GlassClear:
-            s.blurRadius = m == Material::GlassClear ? 1.5f : 3.5f;
-            s.saturation = 1.6f;
-            s.tint = dark ? Color::white(0.025f) : Color::white(0.04f);
-            s.highlight = Color::transparent();
-            s.bezelWidth = 18;
-            s.refraction = 22;
-            s.rimStrength = dark ? 0.62f : 0.76f;
-            s.border = dark ? Color::white(0.25f) : Color::white(0.78f);
-            if (m == Material::Glass) {
-                s.toneLow = dark ? 0.07f : 0.30f;
-                s.toneHigh = dark ? 0.40f : 1.0f;
-            } else {
-                s.toneLow = dark ? 0.02f : 0.08f;
-                s.toneHigh = dark ? 0.92f : 1.0f;
-            }
+            s.blurRadius = 1.5f;
+            s.toneLow = dark ? 0.02f : 0.08f;
+            s.toneHigh = dark ? 0.92f : 1.0f;
             break;
     }
     return s;
@@ -188,9 +171,9 @@ Theme Theme::make(Appearance appearance, Color accent) {
 namespace {
 
 constexpr AccentChoice kAccents[] = {
-    {"Blue", Theme::defaultAccent()},   {"Purple", Color::hex(0xA550A7)}, {"Pink", Color::hex(0xF74F9E)},
-    {"Red", Color::hex(0xFF5257)},      {"Orange", Color::hex(0xF7821B)}, {"Yellow", Color::hex(0xFFC600)},
-    {"Green", Color::hex(0x62BA46)},    {"Graphite", Color::hex(0x8C8C8C)},
+    {"Blue", Theme::defaultAccent()}, {"Purple", Color::hex(0xA550A7)},   {"Pink", Color::hex(0xF74F9E)},
+    {"Red", Color::hex(0xFF5257)},    {"Orange", Color::hex(0xF7821B)},   {"Yellow", Color::hex(0xFFC600)},
+    {"Green", Color::hex(0x62BA46)},  {"Graphite", Color::hex(0x8C8C8C)},
 };
 
 /// Hue in degrees and saturation (HSV).

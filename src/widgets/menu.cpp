@@ -79,8 +79,6 @@ Size MenuView::measureContent(Size /*available*/) {
     const Theme& t = theme();
     const Font f = t.font(TextStyle::Body);
     const Font sf = t.font(TextStyle::Body);
-    bool anyCheck = false;
-    bool anyIcon = false;
     float textW = 0;
     float shortcutW = 0;
     float detailW = 0;
@@ -91,16 +89,14 @@ Size MenuView::measureContent(Size /*available*/) {
             continue;
         }
         h += t.metrics.menuItemHeight;
-        anyCheck |= item.checked;
-        anyIcon |= item.icon != Icon::None || item.image != nullptr;
         float titleW = render::measureText(item.title, f);
         if (item.hasSubmenu()) titleW += kSubmenuWidth;
         textW = std::max(textW, titleW);
         if (!item.detail.empty()) detailW = std::max(detailW, titleW + kDetailGap + render::measureText(item.detail, sf));
         if (!item.shortcut.empty()) shortcutW = std::max(shortcutW, render::measureText(item.shortcut, sf));
     }
-    float w = kPanelPad * 2 + kTextPad * 2 + std::max(textW, detailW) + (anyCheck ? kColumn : 0.0f) +
-              (anyIcon ? kColumn + 4 : 0.0f) + (shortcutW > 0 ? shortcutW + 28 : 0.0f);
+    float w = kPanelPad * 2 + kTextPad * 2 + std::max(textW, detailW) + kColumn +
+              (kColumn + 4) + (shortcutW > 0 ? shortcutW + 28 : 0.0f);
     return {std::max(std::ceil(w), 140.0f), h};
 }
 
@@ -195,12 +191,6 @@ void MenuView::drawPanel(Painter& p) {
     const auto& c = t.colors;
     const Font f = t.font(TextStyle::Body);
     const Font sf = t.font(TextStyle::Subheadline);
-    bool anyCheck = false;
-    bool anyIcon = false;
-    for (const auto& item : m_items) {
-        anyCheck |= item.checked;
-        anyIcon |= item.icon != Icon::None || item.image != nullptr;
-    }
     for (int i = 0; i < static_cast<int>(m_items.size()); ++i) {
         const auto& item = m_items[static_cast<size_t>(i)];
         Rect row = rowRect(i);
@@ -213,11 +203,11 @@ void MenuView::drawPanel(Painter& p) {
         if (hi) p.fillRoundedRect(row, t.metrics.smallRadius + 1, item.destructive ? c.destructive : c.accent);
         Color text = !item.enabled ? c.tertiaryLabel : hi ? c.onAccent : item.destructive ? c.destructive : c.label;
         float x = row.x + kTextPad;
-        if (anyCheck) {
+        {  // Stable check column, even when this menu has no checked rows.
             if (item.checked) p.drawIcon(Icon::Checkmark, {x - 2, row.center().y - 6, 12, 12}, text, 1.1f);
             x += kColumn;
         }
-        if (anyIcon) {
+        {  // Stable icon column for item, background and overflow menus.
             if (item.image && item.image->width() > 0) {
                 p.drawImage({x, row.center().y - 8, 16, 16}, *item.image);
             } else if (item.icon != Icon::None) {

@@ -67,9 +67,9 @@ void PopupView::draw(Painter& p) {
     const float radius = cornerRadiusValue();
     p.pushOpacity(a);
     // Two shadows: a wide soft one for depth and a tight one to define the edge.
-    p.drawShadow(r, radius, Color::black(t.isDark() ? 0.45f : 0.18f), 30, {0, 10});
-    p.drawShadow(r, radius, Color::black(t.isDark() ? 0.35f : 0.10f), 3, {0, 1});
     p.drawMaterial(r, radius, m_material);
+    p.drawShadow(r, radius, Color::black(t.isDark() ? 0.38f : 0.12f), 24, {0, 6}, 0, true);
+    p.drawShadow(r, radius, Color::black(t.isDark() ? 0.22f : 0.05f), 3, {0, 1}, 0, true);
     p.pushClip(r, radius);
     drawPanel(p);
     p.popClip();

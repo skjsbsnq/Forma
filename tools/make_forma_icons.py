@@ -174,18 +174,24 @@ text_body='''<rect x="132" y="110" width="242" height="296" rx="30" fill="#253B6
 </g>'''
 icons['text_editor']=icon('Forma Text Editor',('#CEE9FF','#72A9E7'),text_body,text_defs)
 
-store_defs=r"""<linearGradient id="bagBody" x1="150" y1="240" x2="360" y2="404" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset=".55" stop-color="#EDF7FF"/><stop offset="1" stop-color="#BFE0FF"/></linearGradient>
-<linearGradient id="bagHandle" x1="190" y1="170" x2="322" y2="258" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#CFE8FF"/></linearGradient>
-<linearGradient id="installArrow" x1="256" y1="272" x2="256" y2="372" gradientUnits="userSpaceOnUse"><stop stop-color="#2E9BFF"/><stop offset="1" stop-color="#0757C4"/></linearGradient>"""
-store_body=r"""<path d="M188 258V226Q188 166 256 166Q324 166 324 226V258" fill="none" stroke="#0A4E9E" stroke-opacity=".26" stroke-width="26" stroke-linecap="round"/>
-<path d="M188 258V226Q188 166 256 166Q324 166 324 226V258" fill="none" stroke="url(#bagHandle)" stroke-width="21" stroke-linecap="round"/>
-<rect x="140" y="238" width="232" height="178" rx="52" fill="#06327A" opacity=".26" filter="url(#shadow)" transform="translate(0 16)"/>
-<rect x="136" y="226" width="240" height="182" rx="50" fill="url(#bagBody)" stroke="#FFFFFF" stroke-opacity=".9" stroke-width="3"/>
-<path d="M166 250Q166 236 180 236H332" stroke="white" stroke-opacity=".85" stroke-width="4" stroke-linecap="round"/>
-<path d="M256 266V352M226 324L256 356L286 324" stroke="#0A4E9E" stroke-opacity=".22" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M256 266V352M226 324L256 356L286 324" stroke="url(#installArrow)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M166 384H346" stroke="#5FA5E8" stroke-opacity=".28" stroke-width="2" stroke-linecap="round"/>"""
-icons['app_store']=icon('Forma App Store',('#7FD4FF','#0A67D6'),store_body,store_defs)
+# App collection: four individually legible tiles, one lifted out of the grid.
+store_defs=r"""<linearGradient id="cyanTile" x1="150" y1="140" x2="244" y2="244" gradientUnits="userSpaceOnUse"><stop stop-color="#A3F6FF"/><stop offset="1" stop-color="#35BDD9"/></linearGradient>
+<linearGradient id="coralTile" x1="270" y1="128" x2="368" y2="230" gradientUnits="userSpaceOnUse"><stop stop-color="#FFE0A8"/><stop offset="1" stop-color="#FF8A77"/></linearGradient>
+<linearGradient id="violetTile" x1="150" y1="266" x2="246" y2="364" gradientUnits="userSpaceOnUse"><stop stop-color="#E0D7FF"/><stop offset="1" stop-color="#9F8AF5"/></linearGradient>
+<linearGradient id="whiteTile" x1="270" y1="266" x2="366" y2="364" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#C8E5FF"/></linearGradient>"""
+store_body=r"""<g fill="#071C48" opacity=".35" filter="url(#shadow)" transform="translate(0 12)">
+<rect x="143" y="145" width="102" height="102" rx="27"/>
+<rect x="265" y="132" width="102" height="102" rx="27" transform="rotate(10 316 183)"/>
+<rect x="143" y="267" width="102" height="102" rx="27"/>
+<rect x="265" y="267" width="102" height="102" rx="27"/></g>
+<rect x="143" y="145" width="102" height="102" rx="27" fill="url(#cyanTile)"/>
+<rect x="143" y="267" width="102" height="102" rx="27" fill="url(#violetTile)"/>
+<rect x="265" y="267" width="102" height="102" rx="27" fill="url(#whiteTile)"/>
+<g transform="rotate(10 316 183)"><rect x="265" y="132" width="102" height="102" rx="27" fill="url(#coralTile)"/>
+<path d="M316 155Q320 179 344 183Q320 187 316 211Q312 187 288 183Q312 179 316 155Z" fill="white" fill-opacity=".95"/>
+<path d="M283 141H344" stroke="white" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"/></g>
+<g stroke="white" stroke-opacity=".4" stroke-width="2" stroke-linecap="round"><path d="M163 154H225"/><path d="M163 276H225"/><path d="M285 276H347"/></g>"""
+icons['app_store']=icon('Forma App Store',('#27629F','#152C62'),store_body,store_defs)
 
 for folder,svg in icons.items():
     if len(sys.argv) > 1 and folder not in sys.argv[1:]:

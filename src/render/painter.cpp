@@ -44,8 +44,9 @@ void Painter::fillVerticalGradient(const Rect& r, const CornerRadii& radii, cons
     m_renderer.fillGradient(r, radii, top, bottom, {r.x, r.top()}, {r.x, r.bottom()});
 }
 
-void Painter::drawShadow(const Rect& r, float radius, const Color& color, float blur, Vec2 offset, float spread) {
-    m_renderer.shadow(r, radius, color, blur, offset, spread);
+void Painter::drawShadow(const Rect& r, float radius, const Color& color, float blur, Vec2 offset, float spread,
+                         bool exterior) {
+    m_renderer.shadow(r, radius, color, blur, offset, spread, exterior);
 }
 
 void Painter::drawLine(Point a, Point b, const Color& color, float width) { m_renderer.line(a, b, color, width); }

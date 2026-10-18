@@ -300,8 +300,8 @@ void ToolbarGroupView::draw(Painter& p) {
     const Theme& t = theme();
     Rect r = frame();
     float radius = r.height * 0.5f;
-    p.drawShadow(r, radius, t.colors.shadow.multipliedAlpha(t.isDark() ? 0.8f : 0.65f), 14, {0, 3});
     p.drawMaterial(r, radius, Material::Glass);
+    p.drawShadow(r, radius, t.colors.shadow.multipliedAlpha(t.isDark() ? 0.45f : 0.22f), 6, {0, 1}, 0, true);
     paintChildren(p);
 }
 

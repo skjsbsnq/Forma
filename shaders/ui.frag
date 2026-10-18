@@ -179,6 +179,10 @@ void main() {
         }
     } else if (type == kShadow) {
         alpha = roundedBoxShadow(p, v_shape.zw, max(v_params.z, 0.5), v_radii.x);
+        if (v_params.y > 0.5) {
+            float cutout = sdRoundBox(v_pixel - v_gradient.xy, v_gradient.zw, vec4(v_color2.x));
+            alpha *= 1.0 - coverage(cutout);
+        }
     } else if (type == kImage) {
         alpha = coverage(sdRoundBox(p, v_shape.zw, v_radii));
         color = texture(u_texture, v_uv) * v_color.a;
@@ -213,25 +217,10 @@ void main() {
         float tone = mix(v_color2.x, v_color2.y, 1.0 - pow(max(1.0-l, 0.0), v_color2.z));
         bg = clamp(vec3(tone) + (bg-l) * v_params.z * (v_color2.y-v_color2.x), 0.0, 1.0);
         vec3 tinted = bg * (1.0 - v_color.a) + v_color.rgb;  // tint is premultiplied
-        if (bezel > 0.0 && v_gradient.z > 0.0) {
-            // A lens needs its own surface lighting on a uniform backdrop too.
-            // The wide shoulder, bright lip and inner shadow describe thickness;
-            // only the backdrop is refracted, so foreground text stays crisp.
-            float pixel = max(v_gradient.w, 0.5);
-            float rim = depth / pixel;
-            float shoulder = exp(-depth / max(min(bezel * 0.42, pixel * 6.0), pixel));
-            float light = dot(normal, vec2(-0.6, -0.8));
-            float inner = (depth - 2.4 * pixel) / (1.3 * pixel);
-            float innerShadow = exp(-inner * inner);
-            float shade = (0.22 * max(-light, 0.0) * shoulder + 0.06 * innerShadow) * v_gradient.z;
-            tinted *= 1.0 - shade;
-            float lip = exp(-rim * rim);
-            float gleam = (0.85 * max(light, 0.0) * lip + 0.40 * max(light, 0.0) * shoulder) * v_gradient.z;
-            tinted = mix(tinted, vec3(1.0), clamp(gleam, 0.0, 1.0));
-            float fy = (p.y + v_shape.w) / max(2.0 * v_shape.w, 1.0);
-            float sheen = (fy - 0.23) / 0.18;
-            tinted = mix(tinted, vec3(1.0), 0.10 * v_gradient.z * exp(-sheen * sheen));
-        }
+        // A narrow directional rim, without the broad inner shadow that dirties white surfaces.
+        float rim = depth / max(v_gradient.w, 0.5);
+        float light = max(dot(normal, normalize(vec2(-0.6, -0.8))), 0.0);
+        tinted = mix(tinted, vec3(1.0), v_gradient.z * light * exp(-rim * rim));
         tinted += (hash(floor(v_pixel)) - 0.5) * v_params.w;
         color = vec4(tinted, 1.0);
         alpha *= v_clip2.y;  // group opacity (fading popovers)

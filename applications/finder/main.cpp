@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
     auto columns = std::make_shared<ListColumns>();
     auto listHeader = std::make_shared<ListHeaderView>(browser, columns);
     auto listRows = std::make_shared<ListRowsView>(browser, columns);
-    auto listScroll = ScrollView(Element(listRows)).scrollEdge(ScrollEdgeStyle::Soft, theme().metrics.spacingLarge);
+    auto listScroll = ScrollView(Element(listRows)).scrollEdge(ScrollEdgeStyle::Hard, theme().metrics.spacingLarge);
     listRows->setScroller(listScroll.node().get());
     listHeader->onColumnsResized = [&] {
         listRows->invalidate();
