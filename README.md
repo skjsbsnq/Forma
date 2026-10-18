@@ -8,13 +8,13 @@
 
 C++20 · SDL3 · Vulkan / OpenGL · 简体中文 · Arch Linux
 
-[应用预览](#应用预览) · [构建运行](#构建运行) · [Arch Linux 安装](#arch-linux-安装) · [框架文档](docs/framework.md)
+[应用预览](#应用预览) · [构建运行](#构建运行) · [Arch Linux 安装](#arch-linux-安装) · [桌面门户](#forma-桌面门户开发中) · [框架文档](docs/framework.md)
 
 </div>
 
 ![Forma 文本编辑器：中文正文与原生窗口](docs/screenshots/forma-editor-light.png)
 
-Forma 基于 [Mayonnaise](https://github.com/egely1337/mayonnaise) UI 框架，提供文件管理、终端、邮件、文本编辑等桌面应用。窗口、控件和文字由框架自行绘制，以连续圆角、半透明材质和细腻层次构成统一的视觉语言；无需 GTK、Qt 或 Electron。
+Forma 基于 [Mayonnaise](https://github.com/egely1337/mayonnaise) UI 框架，提供文件管理、终端、邮件、文本编辑等桌面应用。窗口、控件和文字由框架自行绘制，以连续圆角、半透明材质和细腻层次构成统一的视觉语言；核心应用无需 GTK、Qt 或 Electron；桌面门户集成保留 KDE / Qt 后端，独立文件选择器也使用 Qt6 Core 处理 JSON、MIME 和 URL。
 
 当前重点是 Linux 上的中文使用体验、可实际工作的应用流程，以及统一的 Forma 家族图标。项目仍在开发中，界面接近 macOS 的设计语言，尚非像素级一致复刻。
 
@@ -66,7 +66,7 @@ Forma 基于 [Mayonnaise](https://github.com/egely1337/mayonnaise) UI 框架，�
 
 需要 C++20 编译器、CMake ≥ 3.21、SDL3、FreeType，以及 OpenGL 开发文件。默认启用 Vulkan 后端，所需工具由 CMake 检查；可用 `-DMAYONNAISE_VULKAN=OFF` 关闭。
 
-Arch Linux 的完整开发依赖：
+核心应用在 Arch Linux 上的开发依赖（门户后端的 KDE / Qt 依赖由其 PKGBUILD 单独声明）：
 
 ```sh
 sudo pacman -S --needed base-devel cmake pkgconf sdl3 freetype2 fontconfig \
@@ -102,7 +102,7 @@ ctest --test-dir build --output-on-failure
 每个配方从当前本地源码构建，包含尚未提交的修改。先克隆整个仓库，再进入相应打包目录：
 
 ```sh
-git clone https://github.com/skjsbsnq/Forma.git
+git clone --branch master https://github.com/skjsbsnq/Forma.git
 cd Forma/packaging/arch-texteditor
 makepkg -si
 ```
@@ -120,8 +120,8 @@ makepkg -si
 更新文件管理器（当前打包版本 `0.1.0-10`）可在仓库根目录执行；`-f` 会重新构建已有的同版本安装包：
 
 ```sh
-cd packaging/arch-finder
-makepkg -sif
+git pull --ff-only origin master
+(cd packaging/arch-finder && makepkg -sif)
 ```
 
 安装完成后关闭旧文件管理器窗口并重新启动。文件管理器回归测试覆盖默认应用跨进程持久化、KDE 系统默认覆盖、打开方式点击交互、失败提示，以及 AppImage 授权与启动：
@@ -135,7 +135,39 @@ ctest --test-dir build -R finder_open_tests --output-on-failure
 
 ## Forma 桌面门户（开发中）
 
-保留 KDE 门户服务，统一文件选择、打开方式、授权、屏幕共享、打印等门户窗口的 Forma 外观。文件窗口复用 Forma 文件管理器组件，其他窗口保留原有交互并接入私有 Forma 样式。提供独立预览与隔离测试，暂未自动替换系统服务。参见 [构建与试用](integrations/kde/README.md) 和 [界面覆盖范围](integrations/kde/STYLE_COVERAGE.md)。
+基于固定版本 KDE `v6.8.0`，统一文件选择、打开方式、授权、截图、屏幕共享、打印等门户窗口的 Forma 外观。独立文件窗口复用 Forma 文件管理器组件；其他窗口保留 KDE 的数据绑定和功能实现，接入私有 Qt Quick / Widgets 样式。
+
+![Forma 门户组件预览](docs/screenshots/forma-portals-overview.png)
+
+| 文件选择器浅色 | 文件选择器深色 |
+| --- | --- |
+| ![Forma 门户文件选择器浅色](docs/screenshots/forma-portal-light.png) | ![Forma 门户文件选择器深色](docs/screenshots/forma-portal-dark.png) |
+
+在仓库根目录构建 Arch 安装包：
+
+```sh
+git submodule update --init integrations/xdg-desktop-portal-kde
+(cd packaging/arch-portal && makepkg -s)
+```
+
+构建命令不会安装门户包。安装并切换服务：
+
+```sh
+sudo pacman -U packaging/arch-portal/xdg-desktop-portal-forma-6.8.0-1-x86_64.pkg.tar.zst
+systemctl --user daemon-reload
+systemctl --user restart plasma-xdg-desktop-portal-kde.service xdg-desktop-portal.service
+```
+
+该包替换官方 `xdg-desktop-portal-kde`，保留 KDE 后端接口，并配置独立 Forma 文件选择器。安装、恢复官方包及日志命令见 [Arch 门户安装说明](packaging/arch-portal/README.md)。
+
+无需切换当前门户服务即可预览：
+
+```sh
+./build/applications/portal/forma-file-picker --preview
+./build-portal-kde/bin/forma-portal-preview AppChooserDialog
+```
+
+上述预览程序需先按 [构建与试用](integrations/kde/README.md) 编译。当前已通过 28 项明暗组件渲染与取消检查；常规 CTest 的 3 项测试也全部通过。跨进程父窗口绑定、Wayland 激活和严格模态仍需完善，真实录屏、远程控制、USB 和打印流程仍需会话及设备验收。完整范围见 [界面覆盖与边界](integrations/kde/STYLE_COVERAGE.md)。
 
 ## UI 框架与开发
 
