@@ -16,9 +16,13 @@ public:
     explicit LabelView(std::string text);
 
     void setText(std::string text);
-    /// Editable/user-provided content must bypass display-only UI translation.
-    void setTextTranslationEnabled(bool enabled) { m_translateText = enabled; }
+    /// Editable/user-provided content must bypass display-only UI translation. Turning translation off
+    /// restores the original text, so `.verbatim()` works whether it is applied before or after a setText().
+    void setTextTranslationEnabled(bool enabled);
+    [[nodiscard]] bool textTranslationEnabled() const { return m_translateText; }
     [[nodiscard]] const std::string& text() const { return m_text; }
+    /// The text as it was set, before UI translation.
+    [[nodiscard]] const std::string& sourceText() const { return m_source; }
     void setTextStyle(TextStyle style);
     void setFont(const Font& font);
     void setWeight(FontWeight weight);
@@ -39,9 +43,11 @@ private:
         float width;
     };
     void wrap(float width);
+    void applyText();
 
     bool m_translateText = true;
-    std::string m_text;
+    std::string m_source;  ///< text as given, so translation can be switched off later
+    std::string m_text;    ///< what is actually drawn
     TextStyle m_style = TextStyle::Body;
     std::optional<Font> m_font;
     std::optional<FontWeight> m_weight;

@@ -430,3 +430,26 @@ TEST_CASE("Menu columns do not shift when checks or icons are added") {
     menu->setItems({MenuItem("Same title").withIcon(Icon::Document).setChecked(true)});
     CHECK(menu->measureContent({800, 800}).width == plain.width);
 }
+
+TEST_CASE("Label: .verbatim() shows the given text even when a UI translator is set") {
+    // Display-only translation rewrites what the label draws; data (printer names, effect metadata, file
+    // names) must come through unchanged, whether .verbatim() is applied before or after setText().
+    mayo::setUiTranslator([](std::string_view text) -> std::string {
+        return text == "Close" ? "关闭" : std::string(text);
+    });
+    auto translated = Label("Close");
+    CHECK(translated->text() == "关闭");
+
+    auto verbatim = Label("Close").verbatim();
+    CHECK(verbatim->text() == "Close");
+
+    auto later = Label("Close");
+    later.verbatim();
+    CHECK(later->text() == "Close");
+
+    later.setText("Close");
+    CHECK(later->text() == "Close");
+    CHECK(later->sourceText() == "Close");
+
+    mayo::setUiTranslator(nullptr);
+}

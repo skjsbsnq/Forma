@@ -42,6 +42,7 @@ const PanelInfo* findPanel(const std::string& id);
 mayo::Element wifiPanel(Context& ctx);
 mayo::Element networkPanel(Context& ctx);
 mayo::Element bluetoothPanel(Context& ctx);
+mayo::Element printersPanel(Context& ctx);
 // Devices
 mayo::Element displaysPanel(Context& ctx);
 mayo::Element soundPanel(Context& ctx);
@@ -52,6 +53,8 @@ mayo::Element multitaskingPanel(Context& ctx);
 mayo::Element notificationsPanel(Context& ctx);
 mayo::Element searchPanel(Context& ctx);
 mayo::Element appsPanel(Context& ctx);
+mayo::Element locationsPanel(Context& ctx);
+mayo::Element autostartPanel(Context& ctx);
 // Input
 mayo::Element mousePanel(Context& ctx);
 mayo::Element keyboardPanel(Context& ctx);
@@ -86,4 +89,8 @@ mayo::Element proxySection();
 mayo::Element soundsSection();
 /// "6.2.4", empty when Plasma isn't installed.
 std::string plasmaVersion();
+/// Window decorations ([org.kde.kdecoration2]): plugin, border size and the two titlebar button strings.
+mayo::Element decorationsPanel(Context& ctx);
+/// Desktop effects and KWin scripts (`[Plugins]`), grouped by effect category.
+mayo::Element effectsPanel(Context& ctx);
 }  // namespace kde

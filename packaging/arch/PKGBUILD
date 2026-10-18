@@ -19,14 +19,18 @@ pkgname=(mayonnaise-git
          mayo-video-player-git
          mayo-system-settings-git
          mayo-calculator-git
-         mayo-music-git)
+         mayo-music-git
+         mayo-text-editor-git
+         mayo-mail-git
+         mayo-app-store-git
+         mayo-file-picker-git)
 pkgver=0.1.0.r29.5489758
 pkgrel=1
 pkgdesc='macOS-style (Liquid Glass) C++20 UI library on Vulkan or OpenGL, and apps built with it'
 arch=(x86_64)
 url='https://github.com/egely1337/mayonnaise'
 license=(LicenseRef-custom OFL-1.1)
-makedepends=(git cmake pkgconf sdl3 freetype2 ffmpeg glib2 doctest vulkan-headers shaderc)
+makedepends=(git cmake pkgconf sdl3 freetype2 ffmpeg glib2 vulkan-headers shaderc curl libsecret json-glib qt6-base)
 # Pinned to master: without a branch, makepkg keeps following whatever branch was checked out when it
 # first cloned, and rebuilds that old commit forever.
 source=("mayonnaise::git+file://${startdir}/../..#branch=master")
@@ -41,10 +45,11 @@ build() {
   # stb's asserts embed __FILE__; keep the build directory out of the binaries.
   CFLAGS+=" -ffile-prefix-map=$srcdir=."
   CXXFLAGS+=" -ffile-prefix-map=$srcdir=."
+  # doctest is not packaged (and is only needed for the tests), so let FetchContent fetch it; everything
+  # else must come from the repositories.
   cmake -B build -S mayonnaise \
     -DCMAKE_BUILD_TYPE=None \
     -DCMAKE_INSTALL_PREFIX=/usr \
-    -DMAYONNAISE_USE_SYSTEM_DEPS=ON \
     -DMAYONNAISE_BUILD_APPS=ON \
     -DMAYONNAISE_BUILD_TESTS=ON \
     -Wno-dev
@@ -55,11 +60,15 @@ check() {
   ctest --test-dir build --output-on-failure
 }
 
-# Installs one CMake component plus the Inter licence every app embeds.
+# Installs one CMake component plus the licences every app embeds.
 _install_component() {
   DESTDIR="$pkgdir" cmake --install build --component "$1"
   install -Dm644 mayonnaise/assets/fonts/Inter-LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+  install -Dm644 mayonnaise/third_party/mygo/LICENSE "$pkgdir/usr/share/licenses/$pkgname/mygo/LICENSE"
+  install -Dm644 mayonnaise/third_party/mygo/NOTICE "$pkgdir/usr/share/licenses/$pkgname/mygo/NOTICE"
 }
+
+
 
 # The apps link the library statically. fontconfig (font fallbacks) and dbus (desktop accent colour) are
 # dlopen()ed at run time, so they are real dependencies even though nothing links them.
@@ -81,7 +90,8 @@ package_mayonnaise-git() {
 package_mayo-apps-git() {
   pkgdesc='All Mayonnaise applications'
   depends=(mayo-finder-git mayo-terminal-git mayo-task-manager-git mayo-photos-git mayo-video-player-git
-           mayo-system-settings-git mayo-calculator-git mayo-music-git)
+           mayo-system-settings-git mayo-calculator-git mayo-music-git mayo-text-editor-git mayo-mail-git
+           mayo-app-store-git mayo-file-picker-git)
 }
 
 package_mayo-finder-git() {
@@ -156,4 +166,32 @@ package_mayo-music-git() {
   depends=("${_appdeps[@]}" ffmpeg glib2)
   optdepends=("$_vulkan" 'xdg-utils: "Show in Files"' "$_dialogs")
   _install_component music
+}
+
+package_mayo-text-editor-git() {
+  pkgdesc='Plain-text editor with syntax highlighting (Mayonnaise)'
+  depends=("${_appdeps[@]}")
+  optdepends=("$_vulkan" "$_dialogs")
+  _install_component texteditor
+}
+
+package_mayo-mail-git() {
+  pkgdesc='Mail client with IMAP, OAuth and an HTML reader (Mayonnaise)'
+  depends=("${_appdeps[@]}" curl libsecret json-glib)
+  optdepends=("$_vulkan" "$_dialogs" 'gnome-keyring: store account passwords in the keyring')
+  _install_component forma-mail
+}
+
+package_mayo-app-store-git() {
+  pkgdesc='App store with a curated catalog (Mayonnaise)'
+  depends=("${_appdeps[@]}" curl)
+  optdepends=("$_vulkan" "$_dialogs")
+  _install_component forma-app-store
+}
+
+package_mayo-file-picker-git() {
+  pkgdesc='Finder-based file picker for xdg-desktop-portal (Mayonnaise)'
+  depends=("${_appdeps[@]}" qt6-base)
+  optdepends=("$_vulkan")
+  _install_component forma-file-picker
 }

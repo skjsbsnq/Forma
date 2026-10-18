@@ -820,3 +820,107 @@ Element appsPanel(Context& ctx) {
                                    ui::toggleRow("Mount Drives Automatically", gx::Key("org.gnome.desktop.media-handling", "automount"))}),
     });
 }
+
+// Locations ------------------------------------------------------------------------------------------------
+
+namespace {
+
+/// The keys ~/.config/user-dirs.dirs can hold, in the order GNOME and Plasma list them. `fallback` is the
+/// folder xdg-user-dirs creates by default (in English; the tool localises it on a fresh install).
+struct UserDir {
+    const char* key;
+    const char* title;
+    const char* fallback;
+    Icon icon;
+};
+
+const UserDir kUserDirs[] = {
+    {"XDG_DESKTOP_DIR", "Desktop", "Desktop", Icon::Display},
+    {"XDG_DOCUMENTS_DIR", "Documents", "Documents", Icon::Document},
+    {"XDG_DOWNLOAD_DIR", "Downloads", "Downloads", Icon::ArrowDownCircle},
+    {"XDG_MUSIC_DIR", "Music", "Music", Icon::MusicNote},
+    {"XDG_PICTURES_DIR", "Pictures", "Pictures", Icon::Photo},
+    {"XDG_VIDEOS_DIR", "Videos", "Videos", Icon::Film},
+    {"XDG_PUBLICSHARE_DIR", "Public", "Public", Icon::Share},
+    {"XDG_TEMPLATES_DIR", "Templates", "Templates", Icon::DocOnDoc},
+};
+
+std::string userDirsFile() { return std::string(g_get_user_config_dir()) + "/user-dirs.dirs"; }
+
+/// `$HOME/Desktop` is how xdg-user-dirs writes the value; expand it to a real path for display.
+std::string expandDir(std::string v) {
+    const std::string home = g_get_home_dir();
+    for (size_t pos; (pos = v.find("$HOME")) != std::string::npos;) v.replace(pos, 5, home);
+    return v;
+}
+
+std::string storedDir(const std::string& key) {
+    std::ifstream in(userDirsFile());
+    if (!in) return {};
+    for (std::string line; std::getline(in, line);) {
+        const std::string t = ui::trim(line);
+        if (t.rfind(key + "=", 0) != 0) continue;
+        std::string v = ui::trim(t.substr(key.size() + 1));
+        if (v.size() >= 2 && v.front() == '"' && v.back() == '"') v = v.substr(1, v.size() - 2);
+        return expandDir(v);
+    }
+    return {};
+}
+
+/// Rewrites one line of user-dirs.dirs, keeping the comment header and the other keys.
+void storeDir(const std::string& key, const std::string& path) {
+    if (gx::readOnly()) return;
+    std::vector<std::string> lines;
+    bool replaced = false;
+    {
+        std::ifstream in(userDirsFile());
+        for (std::string line; std::getline(in, line);) {
+            if (ui::trim(line).rfind(key + "=", 0) == 0) {
+                lines.push_back(key + "=\"" + path + "\"");
+                replaced = true;
+            } else {
+                lines.push_back(line);
+            }
+        }
+    }
+    if (!replaced) lines.push_back(key + "=\"" + path + "\"");
+    std::ofstream out(userDirsFile(), std::ios::trunc);
+    for (const auto& l : lines) out << l << '\n';
+}
+
+}  // namespace
+
+Element locationsPanel(Context& ctx) {
+    auto card = std::make_shared<ui::DynamicSection>("Personal Folders", "No folders are configured.",
+                                                    "Applications use these folders for documents, music and pictures.");
+    auto rebuild = std::make_shared<std::function<void()>>();
+    *rebuild = [card, rebuild, &app = ctx.app, &window = ctx.window] {
+        std::vector<Element> rows;
+        for (const auto& d : kUserDirs) {
+            const std::string path = storedDir(d.key);
+            const std::string fallback = std::string(g_get_home_dir()) + "/" + d.fallback;
+            const bool custom = !path.empty() && path != fallback;
+            auto value = Label(path.empty() ? "Not set" : path).secondary().font(TextStyle::Callout).lineLimit(1).maxWidth(220);
+            auto choose = Button("Choose…").controlSize(ControlSize::Small);
+            choose.onClick([&app, &window, key = std::string(d.key), rebuild] {
+                app.openFolder([key, rebuild](std::vector<std::string> paths) {
+                    if (paths.empty()) return;
+                    storeDir(key, paths[0]);
+                    (*rebuild)();
+                }, &window);
+            });
+            auto reset = Button("Reset").style(ButtonStyle::Borderless).tooltip("Use the default folder").controlSize(ControlSize::Small);
+            reset.onClick([key = std::string(d.key), fallback, rebuild] {
+                storeDir(key, fallback);
+                (*rebuild)();
+            });
+            reset.setHidden(!custom);
+            rows.push_back(FormRow(HStack({ui::glyph(d.icon, 18, false), Label(d.title), Spacer(), value, reset, choose})
+                                       .spacing(10)
+                                       .align(Alignment::Center)));
+        }
+        card->setRows(rows);
+    };
+    (*rebuild)();
+    return ui::page({card->element()});
+}

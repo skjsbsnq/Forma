@@ -21,10 +21,21 @@ Color resolveLabelColor(LabelColor role) {
     return c.label;
 }
 
-LabelView::LabelView(std::string text) : m_text(uiText(text)) {}
+LabelView::LabelView(std::string text) : m_source(std::move(text)), m_text(m_translateText ? uiText(m_source) : m_source) {}
 
 void LabelView::setText(std::string text) {
-    if (m_translateText) text = uiText(text);
+    m_source = std::move(text);
+    applyText();
+}
+
+void LabelView::setTextTranslationEnabled(bool enabled) {
+    if (m_translateText == enabled) return;
+    m_translateText = enabled;
+    applyText();
+}
+
+void LabelView::applyText() {
+    std::string text = m_translateText ? uiText(m_source) : m_source;
     if (text == m_text) return;
     m_text = std::move(text);
     m_linesDirty = true;

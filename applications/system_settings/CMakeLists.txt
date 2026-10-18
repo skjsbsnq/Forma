@@ -11,7 +11,9 @@ if(NOT MAYO_GIO_FOUND)
   return()
 endif()
 mayonnaise_app(systemsettings ID io.github.egely1337.Mayonnaise.Settings
-  SOURCES main.cpp glib_support.cpp ui.cpp panels.cpp panels_desktop.cpp panels_network.cpp panels_devices.cpp panels_input.cpp panels_system.cpp panels_kde.cpp kconfig.cpp json.cpp)
+  SOURCES main.cpp glib_support.cpp ui.cpp panels.cpp panels_desktop.cpp panels_network.cpp
+          panels_devices.cpp panels_input.cpp panels_system.cpp panels_kde.cpp panels_kwin.cpp panels_printing.cpp
+          kconfig.cpp json.cpp)
 target_link_libraries(systemsettings PRIVATE PkgConfig::MAYO_GIO)
 
 # Keep Forma alongside the desktop's own terminal and KDE System Settings.
