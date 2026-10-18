@@ -36,6 +36,8 @@ Forma 基于 [Mayonnaise](https://github.com/egely1337/mayonnaise) UI 框架，�
 
 文件管理器提供图标、列表、分栏视图，以及预览、搜索、文件操作和应用打开方式。终端提供 PTY、标签页、选择复制、配色方案及中文字体回退。
 
+文件管理器的“打开方式”支持勾选“始终以此方式打开”，将默认应用保存到 `$XDG_CONFIG_HOME/mimeapps.list`（默认 `~/.config/mimeapps.list`），重启后仍然生效，也可覆盖 KDE 的系统默认应用。选择应用后关闭打开方式面板，文件管理器窗口继续保留；保存或启动失败时显示错误提示。AppImage 缺少执行权限时会提示添加权限后打开，属性面板也可切换“允许作为程序执行”，并同步显示权限位。
+
 | Forma 文件管理器 | Forma 终端 |
 | --- | --- |
 | ![文件管理器](docs/screenshots/forma-finder.png) | ![终端](docs/screenshots/forma-terminal.png) |
@@ -113,6 +115,20 @@ makepkg -si
 | `packaging/arch-taskmanager` | 任务管理器 |
 | `packaging/arch-suite` | 终端、系统设置 |
 | `packaging/arch-media` | 照片、视频播放器 |
+
+更新文件管理器（当前打包版本 `0.1.0-10`）可在仓库根目录执行；`-f` 会重新构建已有的同版本安装包：
+
+```sh
+cd packaging/arch-finder
+makepkg -sif
+```
+
+安装完成后关闭旧文件管理器窗口并重新启动。文件管理器回归测试覆盖默认应用跨进程持久化、KDE 系统默认覆盖、打开方式点击交互、失败提示，以及 AppImage 授权与启动：
+
+```sh
+cmake --build build --target finder_open_tests -j4
+ctest --test-dir build -R finder_open_tests --output-on-failure
+```
 
 源码仓库不保存构建目录或 `.pkg.tar.zst` 安装包。安装包可在本机构建；这些配方尚未发布到 AUR。`packaging/arch` 保留上游 Mayonnaise 的 Git 分包方案，与 Forma 本地源码配方不同。
 

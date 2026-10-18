@@ -977,19 +977,7 @@ std::string defaultApplicationProblem(const std::string& path, const std::string
     if (std::find(choices.begin(), choices.end(), appId) == choices.end())
         return "“" + app->name + "”不在“打开方式”中处理这类文件，设为默认后它无法打开它们。";
     if (defaultApplicationId(path) == appId) return {};  // already the default
-    // A distributor can pin the type in one of its own files; then mimeapps.list is shadowed for everyone,
-    // whatever we write.
-    for (const auto& desktopFile : desktopFileNames()) {
-        for (const auto& dir : dataDirectories()) {
-            const std::string file = dir + "/applications/" + desktopFile + "-mimeapps.list";
-            if (::access(file.c_str(), R_OK) != 0) continue;
-            const MimeAssociations associations = loadAssociations(file);
-            const auto* ids = lookup(associations.defaults, type);
-            if (ids && !ids->empty() && ids->front() != appId)
-                return "系统的“" + desktopFile + "-mimeapps.list”把这类文件固定交给了“" + applicationDisplayName(ids->front()) +
-                       "”，写入的选择不会生效。";
-        }
-    }
+    // User config defaults take precedence over distributor desktop defaults.
     return {};
 }
 

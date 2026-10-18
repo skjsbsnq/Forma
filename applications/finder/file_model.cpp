@@ -636,7 +636,7 @@ OpenResult launchWithDefaultApp(const std::string& path) {
     // instead of handing it to a launcher that would fail with an error nobody explains. Everything else — a
     // picture, a text, a video — is opened by its default application, whatever its permissions are.
     const bool isProgram = (st.st_mode & 0111) != 0;
-    if (S_ISREG(st.st_mode) && !isProgram && isExecutableType(type)) {
+    if (S_ISREG(st.st_mode) && !isProgram && (isExecutableType(type) || lower(fs::path(path).extension().string()) == ".appimage")) {
         result.needsExecutableBit = true;
         return result;
     }
@@ -670,7 +670,8 @@ bool isExecutableType(const std::string& mimeType) {
     static const char* const types[] = {"application/x-executable", "application/x-sharedlib",
                                         "application/x-pie-executable", "application/x-msdos-program",
                                         "application/vnd.microsoft.portable-executable", "application/x-msi",
-                                        "application/x-shared-library-launcher"};
+                                        "application/x-shared-library-launcher", "application/x-iso9660-appimage",
+                                        "application/vnd.appimage", "application/x-appimage"};
     for (const char* t : types) {
         if (mimeType == t) return true;
     }

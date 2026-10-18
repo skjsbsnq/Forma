@@ -802,8 +802,8 @@ int main(int argc, char** argv) {
         auto entry = path.empty() ? std::nullopt : statEntry(path);
         if (!entry || !page->host()) return;
         auto appButton = Button("更改…");
-        appButton.onClick([&, e = *entry] {
-            auto keep = appButton;
+        appButton.onClick([&, weakButton = std::weak_ptr<Widget>(appButton.node()), e = *entry] {
+            auto keep = weakButton.lock();
             closeProperties(*page->host());
             showOpenWith(e);
         });
@@ -819,7 +819,7 @@ int main(int argc, char** argv) {
     showOpenWith = [&](const FileEntry& entry) {
         if (!page->host()) return;
         auto panel = std::make_shared<OpenWithPanel>(entry, [&] { app.post([&] { focusView(); }); });
-        panel->setOnOpen([&](const std::string& id, bool remember) {
+        panel->setOnOpen([&, entry](const std::string& id, bool remember) {
             if (remember) {
                 if (const std::string problem = rememberProblem(entry, id); !problem.empty()) return problem;
                 if (const std::string error = rememberApplication(entry, id); !error.empty()) return error;
@@ -1083,7 +1083,7 @@ int main(int argc, char** argv) {
             items.push_back(MenuItem("始终以此方式打开", [&, e = *first] {
                                 auto panel = std::make_shared<OpenWithPanel>(e, [&] { app.post([&] { focusView(); }); });
                                 panel->setRemember(true);
-                                panel->setOnOpen([&](const std::string& id, bool remember) {
+                                panel->setOnOpen([&, e](const std::string& id, bool remember) {
                                     if (remember) {
                                         if (const std::string problem = rememberProblem(e, id); !problem.empty()) return problem;
                                         if (const std::string error = rememberApplication(e, id); !error.empty()) return error;

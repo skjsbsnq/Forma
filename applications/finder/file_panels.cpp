@@ -403,7 +403,8 @@ bool OpenWithPanel::onPointerDown(const PointerEvent& e) {
         open(index);
         return true;
     }
-    if (canRemember() && rememberBox().outset(8).contains(e.position)) {
+    if (canRemember() && Rect{frame().x + kPad, rememberBox().y - 8,
+                              frame().width - 2 * kPad, 32}.contains(e.position)) {
         m_remember = !m_remember;
         invalidate();
         return true;
@@ -419,7 +420,8 @@ bool OpenWithPanel::onPointerDown(const PointerEvent& e) {
 
 void OpenWithPanel::onPointerMove(const PointerEvent& e) {
     const int row = rowAt(e.position);
-    const bool remember = canRemember() && rememberBox().outset(8).contains(e.position);
+    const bool remember = canRemember() && Rect{frame().x + kPad, rememberBox().y - 8,
+                                                frame().width - 2 * kPad, 32}.contains(e.position);
     const bool ok = !m_choices.empty() && okRect().contains(e.position);
     const bool cancel = cancelRect().contains(e.position);
     if (row != m_hover || remember != m_hoverRemember || ok != m_hoverOk || cancel != m_hoverCancel) {
@@ -463,8 +465,9 @@ void OpenWithPanel::open(int index) {
     auto keep = shared_from_this();  // the caller may drop the last outside reference from m_onDone
     if (!error.empty()) {
         m_opening = false;
+        auto* shownHost = m_shownHost;
         close();
-        if (m_shownHost) showError(*m_shownHost, error);
+        if (shownHost) showError(*shownHost, error);
         return;
     }
     close();
@@ -530,7 +533,7 @@ public:
     }
     std::function<void(const std::string&)> onError;
 
-    mayo::Size measureContent(mayo::Size available) override { return {available.width, 3 * kPropertyRow}; }
+    mayo::Size measureContent(mayo::Size available) override { return {available.width, (m_entry.isDir ? 3 : 4) * kPropertyRow}; }
     void draw(Painter& p) override {
         const Theme& t = theme();
         const auto& c = t.colors;
@@ -544,8 +547,32 @@ public:
             p.drawText(accessTitle(accessFor(m_mode, i)), bezel.inset(Insets(0, 0, 0, 26)), f, c.label, TextAlign::Center);
             p.drawIcon(Icon::ChevronUpDown, {bezel.right() - 18, bezel.center().y - 5, 10, 10}, c.secondaryLabel, 1.3f);
         }
+        if (!m_entry.isDir) {
+            const Rect row = rowRect(3);
+            p.drawText("允许作为程序执行", {row.x, row.y, row.width - kMenuWidth - 8, row.height}, f, c.label);
+            const Rect bezel = menuRect(3);
+            p.fillRoundedRect(bezel, t.metrics.controlRadius, c.control, c.controlBorder, 0.5f);
+            p.drawText((m_mode & 0111) ? "已允许（点击关闭）" : "未允许（点击开启）", bezel, f, c.label, TextAlign::Center);
+        }
     }
     bool onPointerDown(const PointerEvent& e) override {
+        if (!m_entry.isDir && rowRect(3).contains(e.position)) {
+            std::string error = permissionsProblem(m_entry);
+            struct stat st {};
+            if (error.empty() && ::stat(m_entry.path.c_str(), &st) != 0)
+                error = "无法读取文件权限。";
+            if (error.empty()) {
+                const unsigned mode = (st.st_mode & 0111) ? (st.st_mode & 07777 & ~0111) : ((st.st_mode & 07777) | 0100);
+                error = applyMode(m_entry.path, mode);
+                if (error.empty()) {
+                    m_mode = mode;
+                    invalidate();
+                    if (m_changed) m_changed();
+                }
+            }
+            if (!error.empty() && onError) onError(error);
+            return true;
+        }
         for (int i = 0; i < 3; ++i) {
             if (!menuRect(i).contains(e.position)) continue;
             openMenu(i);
@@ -698,13 +725,16 @@ public:
         auto rowsStack = VStack(rows).spacing(6);
 
         auto permissions = std::make_shared<PermissionEditorView>(e, [this] {
+            struct stat current {};
+            if (::lstat(m_entry.path.c_str(), &current) == 0)
+                m_permissionReadout.setText("权限位：" + lsPermissions(current.st_mode, m_entry.isDir));
             if (m_changed) m_changed();
         });
         permissions->onError = [this](const std::string& error) {
             if (m_shownHost) showError(*m_shownHost, error);
         };
-        auto readout = Label("权限位：" + lsPermissions(e.mode, e.isDir)).font(TextStyle::Caption).tertiary();
-        auto permissionsTitle = HStack({Label("权限").font(TextStyle::Subheadline), Spacer(), readout}).spacing(8);
+        m_permissionReadout = Label("权限位：" + lsPermissions(e.mode, e.isDir)).font(TextStyle::Caption).tertiary();
+        auto permissionsTitle = HStack({Label("权限").font(TextStyle::Subheadline), Spacer(), m_permissionReadout}).spacing(8);
         auto permissionsBox = VStack({Element(permissionsTitle), Element(permissions)}).spacing(8);
         auto done = Button("完成").style(ButtonStyle::Prominent).onClick([this] {
             if (m_shown) dismiss();
@@ -730,6 +760,7 @@ private:
     std::function<void()> m_changed;
     Label m_name;
     Label m_sizeLabel;
+    Label m_permissionReadout;
     std::shared_ptr<PermissionEditorView> m_permissions;
 };
 

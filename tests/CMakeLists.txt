@@ -39,3 +39,20 @@ target_link_libraries(text_editor_tests PRIVATE mayonnaise::mayonnaise doctest::
 mayonnaise_set_warnings(text_editor_tests)
 mayonnaise_set_sanitizers(text_editor_tests)
 add_test(NAME text_editor_tests COMMAND text_editor_tests)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_executable(finder_open_tests test_finder_open.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/applications.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/file_model.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/file_panels.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/panels.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/browser.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/file_icons.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/file_ops.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/preview_cache.cpp)
+  target_include_directories(finder_open_tests PRIVATE ${PROJECT_SOURCE_DIR}/applications/finder ${PROJECT_SOURCE_DIR}/src)
+  target_link_libraries(finder_open_tests PRIVATE mayonnaise::mayonnaise)
+  mayonnaise_set_warnings(finder_open_tests)
+  mayonnaise_set_sanitizers(finder_open_tests)
+  add_test(NAME finder_open_tests COMMAND finder_open_tests)
+endif()
