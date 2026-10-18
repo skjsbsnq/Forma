@@ -120,7 +120,8 @@ bool isExecutableType(const std::string& mimeType);
 /// chmod +x (read and execute for owner, group and others — what a "trusted" program gets). Returns "" or the
 /// reason it failed.
 std::string setExecutable(const std::string& path);
-/// Opens a terminal in `folder` ($TERMINAL, or a few common ones).
-void openTerminal(const std::string& folder);
+/// Opens a terminal in `folder`: Forma Terminal first, then $TERMINAL, then a few common ones. Exactly one is
+/// started. Returns "" or the reason no terminal could be launched.
+std::string openTerminal(const std::string& folder);
 
 }  // namespace finder

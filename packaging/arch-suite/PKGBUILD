@@ -2,7 +2,7 @@
 pkgbase=forma-desktop-apps
 pkgname=(forma-terminal forma-settings)
 pkgver=0.1.0
-pkgrel=3
+pkgrel=4
 pkgdesc='Forma desktop applications with Simplified Chinese interfaces'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'

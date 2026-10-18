@@ -956,7 +956,9 @@ int main(int argc, char** argv) {
         if (paths.size() == 1) {
             if (auto e = statEntry(paths.front()); e && e->isDir) folder = e->path;
         }
-        if (!demo) openTerminal(folder);
+        if (demo) return;
+        // Say why nothing opened instead of looking like the menu item did nothing at all.
+        if (const std::string error = openTerminal(folder); !error.empty()) showAlert("无法打开终端。", error);
     };
 
     auto selectAll = [&] {

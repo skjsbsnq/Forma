@@ -91,5 +91,53 @@ int main(int argc, char**) {
     require(finder::launchWithDefaultApp(image).needsExecutableBit, "non-executable AppImage offers permission prompt");
     require(finder::setExecutable(image).empty(), "grant execute permission");
     require(finder::launchWithDefaultApp(image).launched, "execute AppImage after granting permission");
+
+    // Open in Terminal: our own forma-terminal is first, exactly one terminal opens, and the folder is passed.
+    // Every candidate terminal is a stub that records that it ran, since the test machine may have none.
+    const auto folder = root / "terminal folder";
+    const auto log = (root / "launched.log").string();
+    fs::create_directories(folder);
+    struct TerminalStub {
+        const char* name;
+        const char* prefix;
+    };
+    const TerminalStub stubs[] = {{"forma-terminal", "forma"}, {"xdg-terminal-exec", "xdg"}};
+    for (const auto& stub : stubs) {
+        const auto path = root / stub.name;
+        std::ofstream(path) << "#!/bin/sh\nprintf '" << stub.prefix << " %s\\n' \"$PWD\" >> " << log << "\n";
+        ::chmod(path.c_str(), 0755);
+    }
+    const std::string folderStr = folder.string();
+    auto launchedLines = [&] {
+        std::ifstream in(log);
+        std::vector<std::string> lines;
+        for (std::string line; std::getline(in, line);) lines.push_back(line);
+        return lines;
+    };
+    auto waitForLaunch = [&](size_t count) {
+        std::vector<std::string> lines;
+        for (int i = 0; i < 100; ++i) {  // the terminal runs detached
+            lines = launchedLines();
+            if (lines.size() >= count) break;
+            ::usleep(20000);
+        }
+        return lines;
+    };
+    ::setenv("PATH", root.c_str(), 1);  // only the stubs: nothing else can launch
+    ::unsetenv("TERMINAL");
+    require(finder::openTerminal(folderStr).empty(), "open in terminal reports success");
+    auto lines = waitForLaunch(1);
+    ::usleep(100000);
+    lines = launchedLines();
+    require(lines.size() == 1, "exactly one terminal opens, not one per installed terminal");
+    require(lines.front() == "forma " + folderStr, "forma-terminal starts in the requested folder");
+    fs::remove(log);
+    fs::remove(root / "forma-terminal");
+    require(finder::openTerminal(folderStr).empty(), "falls back to another terminal");
+    lines = waitForLaunch(1);
+    require(lines.size() == 1, "still exactly one terminal");
+    require(lines.front() == "xdg " + folderStr, "the next terminal on PATH is used, in the folder");
+    fs::remove(root / "xdg-terminal-exec");
+    require(!finder::openTerminal(folderStr).empty(), "no terminal at all says why");
     fs::remove_all(root);
 }

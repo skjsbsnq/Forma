@@ -384,7 +384,11 @@ Known issues / next steps:
   does it when the pointer leaves the window); the compositor keeps the release, so a DragEnded platform event
   makes the dispatcher send the captured widget an onPointerUp far outside the window. Not available on X11.
 - **Open in Terminal** passes the folder explicitly (`--working-directory` etc.): Ptyxis, Console and GNOME
-  Terminal are single-process, so a new window ignores the child's cwd. Mayo Terminal is tried first.
+  Terminal are single-process, so a new window ignores the child's cwd. Forma Terminal is tried first, and its
+  binary is called `forma-terminal` (the CMake target is still `terminal`): the Finder looks for it next to its
+  own executable and then on PATH, before `$TERMINAL` and the other emulators. Exactly one terminal is
+  launched — a machine with several installed used to get one window per program. `openTerminal()` returns why
+  nothing started, so the menu item reports the failure instead of doing nothing.
 - **Wheel vs touchpad on Wayland comes from the compositor**: SDL ignores `wl_pointer.axis_source` and
   `axis_stop`, so `wayland_drag.cpp`'s extra wl_pointer (bound at v5) records them. A finger source makes events
   precise with `ScrollEvent::reportsEnd`, and the stop becomes a `ScrollPhase::Ended` event (pushed onto SDL's

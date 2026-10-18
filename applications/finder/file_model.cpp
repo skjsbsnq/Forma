@@ -689,16 +689,34 @@ std::string setExecutable(const std::string& path) {
     return {};
 }
 
-void openTerminal(const std::string& folder) {
-    // Our own Terminal first, like Finder opens Terminal.app. It ships next to us in /usr/bin; when running from
-    // a build tree, look for the sibling build directory.
+std::string openTerminal(const std::string& folder) {
+    auto executable = [](const std::string& program) {
+        if (program.empty()) return false;
+        if (program.find('/') != std::string::npos) return ::access(program.c_str(), X_OK) == 0;
+        return onPath(program);
+    };
+    std::vector<std::vector<std::string>> candidates;
+    // Our own Terminal first, like Finder opens Terminal.app. The binary is forma-terminal (the executable is
+    // still called "terminal" internally); older installs and build trees may still have the plain name. It sits
+    // next to the Finder in /usr/bin, and in the sibling application directory of a build tree.
     std::error_code ec;
     const fs::path self = fs::read_symlink("/proc/self/exe", ec);
-    for (const fs::path& own : {self.parent_path() / "terminal", self.parent_path().parent_path() / "terminal" / "terminal"}) {
-        if (!ec && fs::exists(own, ec) && own != self) spawnDetachedIn({own.string(), folder}, folder);
+    if (!ec) {
+        for (const fs::path& own : {self.parent_path() / "forma-terminal", self.parent_path() / "terminal",
+                                    self.parent_path().parent_path() / "terminal" / "forma-terminal",
+                                    self.parent_path().parent_path() / "terminal" / "terminal"}) {
+            if (own != self && ::access(own.c_str(), X_OK) == 0) candidates.push_back({own.string(), folder});
+        }
     }
-    if (onPath("terminal")) spawnDetachedIn({"terminal", folder}, folder);
-    if (const char* t = std::getenv("TERMINAL"); t && *t && onPath(t)) spawnDetachedIn({t}, folder);
+    candidates.push_back({"forma-terminal", folder});  // installed somewhere else on PATH
+    // $TERMINAL may carry a command line ("konsole --hold"), so split it on spaces.
+    if (const char* env = std::getenv("TERMINAL"); env && *env) {
+        std::vector<std::string> command;
+        std::stringstream ss(env);
+        std::string word;
+        while (ss >> word) command.push_back(word);
+        if (!command.empty() && executable(command.front())) candidates.push_back(std::move(command));
+    }
     // Most terminals run as a single process per user, so a new window starts in *that* process's directory
     // unless it's passed explicitly; the working directory of the child alone isn't enough.
     const std::vector<std::vector<std::string>> known = {
@@ -716,9 +734,18 @@ void openTerminal(const std::string& folder) {
         {"tilix", "--working-directory=" + folder},
         {"xterm"},
     };
-    for (const auto& cmd : known) {
-        if (onPath(cmd[0])) spawnDetachedIn(cmd, folder);
+    for (auto cmd : known) {
+        if (executable(cmd.front())) candidates.push_back(std::move(cmd));
     }
+    // Launch exactly one terminal: on a machine with several installed, trying every entry opened a window per
+    // program. `spawnDetachedIn` reports exec failures (a stale $TERMINAL, a half-installed app), so the next
+    // candidate is only tried when this one really couldn't start.
+    std::string error;
+    for (const auto& cmd : candidates) {
+        if (spawnDetachedIn(cmd, folder, &error)) return {};
+    }
+    if (!error.empty()) return error;
+    return "找不到可用的终端程序。请安装 Forma 终端，或设置 TERMINAL 环境变量。";
 }
 
 }  // namespace finder
