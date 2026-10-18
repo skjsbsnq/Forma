@@ -1,197 +1,69 @@
 # Maintainer: egely <egely1337@icloud.com>
 #
-# Split package for Mayonnaise and its applications, built from the git repository two directories up
-# (whatever is committed on its checked-out branch):
+# Forma System Settings, built from the git repository two directories up (whatever is committed on its
+# checked-out branch):  cd packaging/arch && makepkg -si
 #
-#   cd packaging/arch && makepkg -si          # build, then install everything
-#   sudo pacman -U mayo-video-player-git-*.pkg.tar.zst   # or just one app
+# This is the package installed on this machine. It declares provides/conflicts for the older
+# `mayo-system-settings-git` name because both packages ship /usr/bin/forma-settings and the same
+# .desktop file, so installing one over the other has to be a replace, not a file conflict.
 #
-# Every application is a CMake install component, so each package is exactly
-# `cmake --install build --component <app>`: the binary in /usr/bin, its .desktop file and its icon.
+# Only the systemsettings CMake target is built: every other application has its own package.
 
-pkgbase=mayonnaise-git
-pkgname=(mayonnaise-git
-         mayo-apps-git
-         mayo-finder-git
-         mayo-terminal-git
-         mayo-task-manager-git
-         mayo-photos-git
-         mayo-video-player-git
-         mayo-system-settings-git
-         mayo-calculator-git
-         mayo-music-git
-         mayo-text-editor-git
-         mayo-mail-git
-         mayo-app-store-git
-         mayo-file-picker-git)
-pkgver=0.1.0.r29.5489758
-pkgrel=1
-pkgdesc='macOS-style (Liquid Glass) C++20 UI library on Vulkan or OpenGL, and apps built with it'
+pkgname=forma-settings
+pkgver=0.1.0
+pkgrel=5
+pkgdesc='Forma System Settings with Simplified Chinese interface'
 arch=(x86_64)
-url='https://github.com/egely1337/mayonnaise'
-license=(LicenseRef-custom OFL-1.1)
-makedepends=(git cmake pkgconf sdl3 freetype2 ffmpeg glib2 vulkan-headers shaderc curl libsecret json-glib qt6-base)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme glib2 gsettings-desktop-schemas)
+optdepends=('vulkan-icd-loader: Vulkan rendering'
+            'zenity: fallback file dialogs'
+            'kscreen: KDE display configuration'
+            'powerdevil: KDE power management'
+            'plasma-workspace: KDE appearance integration'
+            'networkmanager: network configuration'
+            'bluez: Bluetooth'
+            'libpulse: sound controls (pactl)'
+            'upower: battery information'
+            'power-profiles-daemon: power modes'
+            'accountsservice: user accounts'
+            'xdg-utils: open external settings'
+            # Read directly by the panels added for KDE coverage; each degrades on its own when missing.
+            'kwin: window decorations, desktop effects and KWin scripts'
+            'libcups: Printers panel (a CUPS server is still needed)'
+            'xdg-user-dirs: Locations panel defaults')
+provides=(mayo-system-settings-git)
+conflicts=(mayo-system-settings-git)
+# Configuring the app tree still runs pkg-config for the other applications' libraries.
+makedepends=(git cmake pkgconf sdl3 freetype2 glib2 vulkan-headers shaderc curl libsecret json-glib)
 # Pinned to master: without a branch, makepkg keeps following whatever branch was checked out when it
 # first cloned, and rebuilds that old commit forever.
-source=("mayonnaise::git+file://${startdir}/../..#branch=master")
+source=("forma::git+file://${startdir}/../..#branch=master")
 sha256sums=(SKIP)
 
-pkgver() {
-  cd mayonnaise
-  printf '0.1.0.r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
-}
-
 build() {
-  # stb's asserts embed __FILE__; keep the build directory out of the binaries.
+  # stb's asserts embed __FILE__; keep the build directory out of the binary.
   CFLAGS+=" -ffile-prefix-map=$srcdir=."
   CXXFLAGS+=" -ffile-prefix-map=$srcdir=."
-  # doctest is not packaged (and is only needed for the tests), so let FetchContent fetch it; everything
-  # else must come from the repositories.
-  cmake -B build -S mayonnaise \
+  cmake -B build -S forma \
     -DCMAKE_BUILD_TYPE=None \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DMAYONNAISE_BUILD_APPS=ON \
-    -DMAYONNAISE_BUILD_TESTS=ON \
+    -DMAYONNAISE_BUILD_TESTS=OFF \
     -Wno-dev
-  cmake --build build -j"$(nproc)"
+  # One target: the library and the system settings app, nothing else.
+  cmake --build build --target systemsettings -j"$(nproc)"
 }
 
-check() {
-  ctest --test-dir build --output-on-failure
-}
+package() {
+  DESTDIR="$pkgdir" cmake --install build --component systemsettings
 
-# Installs one CMake component plus the licences every app embeds.
-_install_component() {
-  DESTDIR="$pkgdir" cmake --install build --component "$1"
-  install -Dm644 mayonnaise/assets/fonts/Inter-LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
-  install -Dm644 mayonnaise/third_party/mygo/LICENSE "$pkgdir/usr/share/licenses/$pkgname/mygo/LICENSE"
-  install -Dm644 mayonnaise/third_party/mygo/NOTICE "$pkgdir/usr/share/licenses/$pkgname/mygo/NOTICE"
-}
+  # The .desktop file points Icon=forma-settings, so the icon has to carry that name as well (the install
+  # component ships it under the desktop id).
+  install -Dm644 forma/applications/system_settings/data/io.github.egely1337.Mayonnaise.Settings.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/forma-settings.svg"
 
-
-
-# The apps link the library statically. fontconfig (font fallbacks) and dbus (desktop accent colour) are
-# dlopen()ed at run time, so they are real dependencies even though nothing links them.
-_appdeps=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme)
-_dialogs='zenity: file dialogs without an xdg-desktop-portal'
-# libvulkan is loaded at run time too; without it (or a Vulkan 1.3 GPU) the apps render with OpenGL.
-_vulkan='vulkan-icd-loader: Vulkan renderer (OpenGL otherwise)'
-
-package_mayonnaise-git() {
-  pkgdesc='macOS-style (Liquid Glass) C++20 UI library on Vulkan or OpenGL (static library, headers, CMake package)'
-  optdepends=("$_vulkan")
-  depends=(sdl3 freetype2)
-  provides=(mayonnaise)
-  conflicts=(mayonnaise)
-  options=(staticlibs)
-  _install_component devel
-}
-
-package_mayo-apps-git() {
-  pkgdesc='All Mayonnaise applications'
-  depends=(mayo-finder-git mayo-terminal-git mayo-task-manager-git mayo-photos-git mayo-video-player-git
-           mayo-system-settings-git mayo-calculator-git mayo-music-git mayo-text-editor-git mayo-mail-git
-           mayo-app-store-git mayo-file-picker-git)
-}
-
-package_mayo-finder-git() {
-  pkgdesc='macOS Finder-style file manager (Mayonnaise)'
-  depends=("${_appdeps[@]}" xdg-utils)
-  optdepends=("$_vulkan" "$_dialogs")
-  _install_component finder
-}
-
-package_mayo-terminal-git() {
-  pkgdesc='macOS Terminal-style terminal emulator (Mayonnaise)'
-  depends=("${_appdeps[@]}")
-  optdepends=("$_vulkan" 'xdg-utils: open links with Ctrl+click')
-  _install_component terminal
-}
-
-package_mayo-task-manager-git() {
-  pkgdesc='Activity Monitor-style task manager (Mayonnaise)'
-  depends=("${_appdeps[@]}")
-  optdepends=("$_vulkan")
-  _install_component taskmanager
-}
-
-package_mayo-photos-git() {
-  pkgdesc='Photos-style image viewer (Mayonnaise)'
-  depends=("${_appdeps[@]}")
-  optdepends=("$_vulkan" "$_dialogs")
-  _install_component photos
-}
-
-package_mayo-video-player-git() {
-  pkgdesc='Video player with a library gallery and .srt/.vtt subtitles (Mayonnaise)'
-  depends=("${_appdeps[@]}" ffmpeg)
-  optdepends=("$_vulkan" 'libva: VAAPI hardware decoding'
-              'xdg-utils: "Show in Files"'
-              "$_dialogs")
-  _install_component video_player
-}
-
-package_mayo-system-settings-git() {
-  pkgdesc='System Settings-style control centre for GNOME and KDE Plasma (Mayonnaise)'
-  depends=("${_appdeps[@]}" glib2 gsettings-desktop-schemas)
-  optdepends=("$_vulkan" 'gnome-shell: Displays, Night Light and most desktop panels'
-              'gnome-settings-daemon: power, Night Light and media key settings'
-              'kscreen: Displays panel on KDE Plasma (kscreen-doctor)'
-              'kwin: pointer devices, virtual desktops and Night Light on KDE Plasma'
-              'powerdevil: power settings on KDE Plasma'
-              'plasma-workspace: colour schemes, wallpapers and cursors on KDE Plasma'
-              'networkmanager: Wi-Fi and Network panels'
-              'bluez: Bluetooth panel'
-              'libpulse: Sound panel (pactl; works with PipeWire)'
-              'upower: battery information'
-              'power-profiles-daemon: power modes'
-              'accountsservice: Users and Region & Language panels'
-              'imagemagick: wallpaper thumbnails GNOME has not cached'
-              'iso-codes: language and country names'
-              'xkeyboard-config: keyboard layout names'
-              'fontconfig: font list in Appearance'
-              'tracker3-miners: search locations')
-  _install_component systemsettings
-}
-
-package_mayo-calculator-git() {
-  pkgdesc='Calculator-style basic and scientific calculator (Mayonnaise)'
-  depends=("${_appdeps[@]}")
-  optdepends=("$_vulkan")
-  _install_component calculator
-}
-
-package_mayo-music-git() {
-  pkgdesc='Music-style player with a library of albums, artists and songs (Mayonnaise)'
-  depends=("${_appdeps[@]}" ffmpeg glib2)
-  optdepends=("$_vulkan" 'xdg-utils: "Show in Files"' "$_dialogs")
-  _install_component music
-}
-
-package_mayo-text-editor-git() {
-  pkgdesc='Plain-text editor with syntax highlighting (Mayonnaise)'
-  depends=("${_appdeps[@]}")
-  optdepends=("$_vulkan" "$_dialogs")
-  _install_component texteditor
-}
-
-package_mayo-mail-git() {
-  pkgdesc='Mail client with IMAP, OAuth and an HTML reader (Mayonnaise)'
-  depends=("${_appdeps[@]}" curl libsecret json-glib)
-  optdepends=("$_vulkan" "$_dialogs" 'gnome-keyring: store account passwords in the keyring')
-  _install_component forma-mail
-}
-
-package_mayo-app-store-git() {
-  pkgdesc='App store with a curated catalog (Mayonnaise)'
-  depends=("${_appdeps[@]}" curl)
-  optdepends=("$_vulkan" "$_dialogs")
-  _install_component forma-app-store
-}
-
-package_mayo-file-picker-git() {
-  pkgdesc='Finder-based file picker for xdg-desktop-portal (Mayonnaise)'
-  depends=("${_appdeps[@]}" qt6-base)
-  optdepends=("$_vulkan")
-  _install_component forma-file-picker
+  install -Dm644 forma/LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 forma/assets/fonts/Inter-LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
 }
