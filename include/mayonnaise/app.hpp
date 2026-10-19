@@ -23,6 +23,8 @@ struct WindowOptions {
     /// When set, the window's size and maximized state are remembered in the app's settings under this name
     /// and restored next time ("main" for the main window).
     std::string autosaveName{};
+    /// Create and initialize the window without mapping it; call Window::show() when ready.
+    bool initiallyHidden = false;
 };
 
 /// How the app picks light or dark.
@@ -60,6 +62,11 @@ public:
     /// Runs until the last window closes or quit() is called. Returns the process exit code.
     int run();
     void quit(int exitCode = 0);
+    /// Keep the event loop alive after the last window closes (for background applications).
+    /// Hidden windows also remain dormant until shown. Defaults to false.
+    void setKeepAlive(bool keepAlive);
+    /// Forward an activation token from a launcher to a resident app before showing its window.
+    void setActivationToken(const std::string& token);
 
     /// Runs `fn` on the UI thread at the next loop iteration. Safe to call from any thread.
     void post(std::function<void()> fn);

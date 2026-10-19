@@ -193,6 +193,37 @@ store_body=r"""<g fill="#071C48" opacity=".35" filter="url(#shadow)" transform="
 <g stroke="white" stroke-opacity=".4" stroke-width="2" stroke-linecap="round"><path d="M163 154H225"/><path d="M163 276H225"/><path d="M285 276H347"/></g>"""
 icons['app_store']=icon('Forma App Store',('#27629F','#152C62'),store_body,store_defs)
 
+screenshot_defs='''<linearGradient id="captureFrame" x1="148" y1="157" x2="368" y2="359" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset=".54" stop-color="#F1FAFF"/><stop offset="1" stop-color="#B8DDF8"/></linearGradient>
+<linearGradient id="captureSky" x1="171" y1="181" x2="342" y2="322" gradientUnits="userSpaceOnUse"><stop stop-color="#254BC6"/><stop offset=".48" stop-color="#638AF2"/><stop offset="1" stop-color="#94DFF0"/></linearGradient>
+<linearGradient id="captureMountain" x1="200" y1="238" x2="302" y2="329" gradientUnits="userSpaceOnUse"><stop stop-color="#A4FAF0"/><stop offset="1" stop-color="#1DA4CE"/></linearGradient>
+<linearGradient id="captureForeground" x1="238" y1="264" x2="337" y2="337" gradientUnits="userSpaceOnUse"><stop stop-color="#E1C8FF"/><stop offset="1" stop-color="#849BEE"/></linearGradient>
+<linearGradient id="captureBadge" x1="314" y1="308" x2="379" y2="378" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#D1E9FF"/></linearGradient>
+<clipPath id="captureImage"><rect x="150" y="171" width="212" height="166" rx="16"/></clipPath>'''
+screenshot_body='''<rect x="134" y="157" width="244" height="198" rx="29" fill="#07347D" opacity=".32" filter="url(#shadow)" transform="translate(0 12)"/>
+<rect x="134" y="155" width="244" height="198" rx="28" fill="url(#captureFrame)" stroke="white" stroke-opacity=".9" stroke-width="2.4"/>
+<rect x="150" y="171" width="212" height="166" rx="16" fill="url(#captureSky)"/>
+<g clip-path="url(#captureImage)">
+ <circle cx="307" cy="212" r="18" fill="#DDF9FF" fill-opacity=".92"/>
+ <path d="M131 338L215 229Q222 222 229 229L326 337Z" fill="url(#captureMountain)"/>
+ <path d="M218 337L295 260Q302 254 310 261L379 337Z" fill="url(#captureForeground)"/>
+ <path d="M150 185Q252 171 362 216V239Q246 198 150 212Z" fill="white" fill-opacity=".09"/>
+</g>
+<rect x="150" y="171" width="212" height="166" rx="16" stroke="#528CCB" stroke-opacity=".35" stroke-width="1.6"/>
+<path d="M145 161H353" stroke="white" stroke-opacity=".85" stroke-width="2" stroke-linecap="round"/>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round">
+ <path d="M151 126H106V171M361 126H406V171M106 337V382H151M406 337V382H361" stroke="#064B93" stroke-opacity=".28" stroke-width="12" transform="translate(0 4)"/>
+ <path d="M151 123H106V168M361 123H406V168M106 334V379H151M406 334V379H361" stroke="url(#whiteGlass)" stroke-width="10"/>
+ <path d="M151 120H106V165M361 120H406V165" stroke="white" stroke-opacity=".8" stroke-width="2"/>
+</g>
+<rect x="306" y="303" width="84" height="76" rx="24" fill="#134B8B" opacity=".3" filter="url(#soft)" transform="translate(0 5)"/>
+<rect x="304" y="300" width="84" height="76" rx="23" fill="url(#captureBadge)" stroke="white" stroke-width="2"/>
+<g fill="none" stroke="#2478C9" stroke-width="4.5" stroke-linecap="round">
+ <circle cx="346" cy="338" r="17"/>
+ <path d="M346 312V324M346 352V364M320 338H332M360 338H372"/>
+</g>
+<circle cx="346" cy="338" r="3" fill="#2478C9"/>'''
+icons['screenshot']=icon('Forma Screenshot',('#56DAE9','#2364CF'),screenshot_body,screenshot_defs)
+
 for folder,svg in icons.items():
     if len(sys.argv) > 1 and folder not in sys.argv[1:]:
         continue
@@ -200,7 +231,8 @@ for folder,svg in icons.items():
     existing=list(data.glob('*.svg')) if data.is_dir() else []
     if not existing:
         # New apps name their icon after their desktop id.
-        desktop_ids={'app_store':'io.github.skjsbsnq.Forma.AppStore'}
+        desktop_ids={'app_store':'io.github.skjsbsnq.Forma.AppStore',
+                     'screenshot':'io.github.skjsbsnq.Forma.Screenshot'}
         target=data/desktop_ids.get(folder, folder+'.svg')
     else:
         target=existing[0]

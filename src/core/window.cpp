@@ -61,13 +61,34 @@ const std::string& Window::title() const { return m_impl->title; }
 Size Window::size() const { return m_impl->platformWindow->sizeInPoints(); }
 void Window::close() { m_impl->closed = true; }
 void Window::raise() { m_impl->platformWindow->raise(); }
+void Window::hide() {
+    m_impl->showOnRun = false;
+    m_impl->hidden = true;
+    m_impl->tooltipWidget.reset();
+    m_impl->dispatcher.cancelPointer();
+    m_impl->dispatcher.pointerLeave();
+    m_impl->platformWindow->hide();
+}
+void Window::show() { m_impl->show(); }
+bool Window::isVisible() const { return !m_impl->hidden && m_impl->platformWindow->isVisible(); }
 void Window::onClosed(std::function<void()> handler) { m_impl->closedHandler = std::move(handler); }
 void Window::onCloseRequested(std::function<bool()> handler) { m_impl->closeRequestHandler = std::move(handler); }
 
 void Window::Impl::show() {
+    if (closed) return;
+    showOnRun = false;
+    // Refresh the shared scene while still unmapped. The backends defer hidden-window presentation.
+    render();
+    hidden = false;
     platformWindow->show();
     if (restoreMaximized && !platformWindow->isMaximized()) platformWindow->toggleMaximize();
     restoreMaximized = false;
+    // Wayland only accepts a buffer after mapping. Submit the fresh scene immediately, before raise.
+    // Render again because Vulkan command buffers are finalized by each render's presentation.
+    needsLayout = true;
+    render();
+    platformWindow->raise();
+    needsFrame = true;
 }
 
 void Window::Impl::rememberFrame() {
@@ -126,6 +147,7 @@ void Window::Impl::themeChanged() {
 }
 
 double Window::Impl::nextDeadline() const {
+    if (closed || hidden || !platformWindow->isVisible()) return -1;
     if (needsFrame) return 0.0;
     return wakeAt;
 }

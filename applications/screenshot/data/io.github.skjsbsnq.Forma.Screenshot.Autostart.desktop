@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Forma Screenshot
+Name[zh_CN]=Forma 截图
+Comment=Keep the screenshot renderer ready for global shortcuts
+Exec=forma-screenshot --background
+Icon=io.github.skjsbsnq.Forma.Screenshot
+Terminal=false
+StartupNotify=false
+OnlyShowIn=KDE;

@@ -116,6 +116,7 @@ ctest --test-dir build --output-on-failure
 | 音乐播放器 | `./build/applications/music/music` |
 | 计算器 | `./build/applications/calculator/calculator` |
 | 应用商店 | `./build/applications/app_store/forma-app-store` |
+| 截图 | `./build/applications/screenshot/forma-screenshot` |
 
 应用配置默认保存在 `~/.config/mayonnaise/` 对应子目录。可通过 `XDG_CONFIG_HOME` 使用独立配置。
 
@@ -139,6 +140,7 @@ makepkg -si
 | `packaging/arch-suite` | 终端、系统设置 |
 | `packaging/arch-media` | 照片、视频播放器 |
 | `packaging/arch-appstore` | 应用商店 |
+| `packaging/arch-screenshot` | KDE Wayland 截图 |
 
 更新文件管理器（当前打包版本 `0.1.0-12`）可在仓库根目录执行；`-f` 会重新构建已有的同版本安装包：
 
@@ -212,6 +214,7 @@ int main() {
 
 - [框架 API、架构与原始示例文档](docs/framework.md)
 - [文本编辑器实现、本地化与视觉验证](applications/text_editor/README.md)
+- [截图、全局快捷键与常驻预热](applications/screenshot/README.md)
 - [邮件协议、缓存和测试说明](applications/mail/README.md)
 - [图标生成器](tools/make_forma_icons.py)：运行 `python tools/make_forma_icons.py text_editor` 只更新文本编辑器图标。
 

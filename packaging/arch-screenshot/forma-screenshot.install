@@ -1,0 +1,7 @@
+post_install() {
+  printf '\n以桌面用户运行 forma-screenshot-setup，设置 Super+Shift+S 并迁移旧原型。\n'
+  printf '图形界面：应用启动器 → Forma 截图。目标桌面：KDE Plasma Wayland。\n\n'
+}
+post_upgrade() {
+  printf '\n若旧的截图常驻仍在运行，以桌面用户运行 forma-screenshot-setup 更新常驻进程。\n\n'
+}

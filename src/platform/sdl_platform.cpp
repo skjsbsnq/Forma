@@ -23,7 +23,7 @@ SDL_GLContext g_context = nullptr;
 GraphicsApi g_api = GraphicsApi::OpenGL;
 bool g_vulkanLoaded = false;
 std::unordered_map<WindowId, PlatformWindow*> g_windows;
-std::array<SDL_Cursor*, 6> g_cursors{};
+std::array<SDL_Cursor*, 10> g_cursors{};
 CursorShape g_currentCursor = CursorShape::Arrow;
 Uint32 g_wakeEvent = 0;
 Uint32 g_dragEndEvent = 0;
@@ -301,6 +301,7 @@ bool PlatformWindow::isFullscreen() const {
 
 void PlatformWindow::setTitle(const std::string& title) { SDL_SetWindowTitle(m_impl->window, title.c_str()); }
 void PlatformWindow::show() { SDL_ShowWindow(m_impl->window); }
+void PlatformWindow::hide() { SDL_HideWindow(m_impl->window); }
 void PlatformWindow::minimize() { SDL_MinimizeWindow(m_impl->window); }
 void PlatformWindow::raise() { SDL_RaiseWindow(m_impl->window); }
 void PlatformWindow::toggleMaximize() {
@@ -595,6 +596,10 @@ void Platform::setCursor(CursorShape shape) {
             case CursorShape::ResizeHorizontal: sys = SDL_SYSTEM_CURSOR_EW_RESIZE; break;
             case CursorShape::ResizeVertical: sys = SDL_SYSTEM_CURSOR_NS_RESIZE; break;
             case CursorShape::NotAllowed: sys = SDL_SYSTEM_CURSOR_NOT_ALLOWED; break;
+            case CursorShape::Crosshair: sys = SDL_SYSTEM_CURSOR_CROSSHAIR; break;
+            case CursorShape::Move: sys = SDL_SYSTEM_CURSOR_MOVE; break;
+            case CursorShape::ResizeNWSE: sys = SDL_SYSTEM_CURSOR_NWSE_RESIZE; break;
+            case CursorShape::ResizeNESW: sys = SDL_SYSTEM_CURSOR_NESW_RESIZE; break;
         }
         c = SDL_CreateSystemCursor(sys);
     }
@@ -609,6 +614,9 @@ std::string Platform::clipboardText() {
 }
 
 void Platform::setClipboardText(const std::string& text) { SDL_SetClipboardText(text.c_str()); }
+void Platform::setActivationToken(const std::string& token) {
+    if (!token.empty()) SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "XDG_ACTIVATION_TOKEN", token.c_str(), true);
+}
 
 float Platform::doubleClickTime() { return 0.5f; }
 

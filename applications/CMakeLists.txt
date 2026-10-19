@@ -22,6 +22,11 @@ function(mayonnaise_app name)
           DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/${name}/mygo COMPONENT ${name})
 endfunction()
 
+if(FORMA_SCREENSHOT_ONLY)
+  add_subdirectory(screenshot)
+  return()
+endif()
+
 add_subdirectory(photos)
 add_subdirectory(video_player)
 add_subdirectory(task_manager)
@@ -38,3 +43,5 @@ add_subdirectory(portal)
 
 # Developer preview; no desktop integration or installation side effects.
 add_subdirectory(component_gallery)
+
+add_subdirectory(screenshot)

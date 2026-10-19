@@ -35,6 +35,11 @@ public:
     void setSize(Size size);
     void setMinimumSize(Size size);
     void close();
+    /// Unmaps the window without destroying its content or GPU resources.
+    void hide();
+    /// Renders fresh content before mapping, then presents and brings the window forward.
+    void show();
+    [[nodiscard]] bool isVisible() const;
     /// Brings the window to the front (the compositor may only flash it on Wayland).
     void raise();
     /// Asked when the user closes the window (close button, window manager); return false to keep it open,

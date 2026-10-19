@@ -27,6 +27,7 @@ struct App::Impl {
     Color accent = Theme::defaultAccent();       // effective
     std::optional<Color> systemAccent;           // last value read from the desktop
     bool running = false;
+    bool keepAlive = false;
     bool trimPending = false;  // work happened since the heap was last returned to the OS
     struct Timer {
         double due;

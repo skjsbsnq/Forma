@@ -91,6 +91,7 @@ public:
 
     void setTitle(const std::string& title);
     void show();
+    void hide();
     void minimize();
     void raise();
     void toggleMaximize();
@@ -142,6 +143,7 @@ public:
     static void setCursor(CursorShape shape);
     static std::string clipboardText();
     static void setClipboardText(const std::string& text);
+    static void setActivationToken(const std::string& token);
     static float doubleClickTime();  // seconds
     /// The desktop's light/dark preference, if it has one (xdg-desktop-portal on Linux, via SDL).
     static std::optional<Appearance> systemAppearance();

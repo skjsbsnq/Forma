@@ -1,0 +1,24 @@
+[Desktop Entry]
+Type=Application
+Name=Forma Screenshot
+Name[zh_CN]=Forma 截图
+Comment=Capture a region, screen or window
+Exec=forma-screenshot --region
+Icon=io.github.skjsbsnq.Forma.Screenshot
+Terminal=false
+Categories=Graphics;
+Actions=Region;Fullscreen;Window;
+X-KDE-Shortcuts=Meta+Shift+S
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+[Desktop Action Region]
+Name=Capture Region
+Name[zh_CN]=区域截图
+Exec=forma-screenshot --region
+[Desktop Action Fullscreen]
+Name=Capture Full Screen
+Name[zh_CN]=全屏截图
+Exec=forma-screenshot --fullscreen
+[Desktop Action Window]
+Name=Capture Window
+Name[zh_CN]=窗口截图
+Exec=forma-screenshot --window

@@ -79,6 +79,7 @@ struct TextInputEvent {
 
 enum class CursorShape : std::uint8_t {
     Arrow, IBeam, PointingHand, ResizeHorizontal, ResizeVertical, NotAllowed,
+    Crosshair, Move, ResizeNWSE, ResizeNESW,
 };
 
 }  // namespace mayo

@@ -73,3 +73,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   mayonnaise_set_sanitizers(finder_open_tests)
   add_test(NAME finder_open_tests COMMAND finder_open_tests)
 endif()
+
+# The screenshot backend can be tested without a desktop session.
+if(TARGET screenshot_backend_test)
+  add_test(NAME screenshot_backend COMMAND screenshot_backend_test)
+endif()

@@ -257,6 +257,7 @@ Window& App::createWindow(const WindowOptions& options) {
                                                           : platform::GraphicsApi::OpenGL);
     }
     auto impl = std::make_unique<Window::Impl>(config);
+    impl->showOnRun = !options.initiallyHidden;
     impl->autosaveName = options.autosaveName;
     impl->restoreMaximized = maximized;
     if (!m_impl->device) {
@@ -278,7 +279,7 @@ Window& App::createWindow(const WindowOptions& options) {
     auto window = std::unique_ptr<Window>(new Window(std::move(impl)));
     Window& ref = *window;
     m_impl->windows.push_back(std::move(window));
-    if (m_impl->running) ref.impl().show();
+    if (m_impl->running && ref.impl().showOnRun) ref.impl().show();
     return ref;
 }
 
@@ -288,11 +289,9 @@ int App::run() {
     m_impl->startTime = Platform::now();
     // Render once before showing so the first visible frame isn't garbage.
     for (auto& w : m_impl->windows) {
-        w->impl().render();
-        w->impl().show();
-        w->impl().needsFrame = true;
+        if (w->impl().showOnRun) w->impl().show();
     }
-    while (!m_impl->quitRequested && !m_impl->windows.empty()) {
+    while (!m_impl->quitRequested && (m_impl->keepAlive || !m_impl->windows.empty())) {
         double deadline = m_impl->nextDeadline();
         double timeout = deadline < 0 ? -1.0 : std::max(0.0, deadline - Platform::now());
         // glibc keeps freed memory (and worker threads' arenas) mapped; after a burst of work such as image
@@ -321,6 +320,12 @@ int App::run() {
 void App::quit(int exitCode) {
     m_impl->exitCode = exitCode;
     m_impl->quitRequested = true;
+    platform::Platform::wake();
+}
+void App::setActivationToken(const std::string& token) { platform::Platform::setActivationToken(token); }
+
+void App::setKeepAlive(bool keepAlive) {
+    m_impl->keepAlive = keepAlive;
     platform::Platform::wake();
 }
 

@@ -22,6 +22,8 @@ struct Window::Impl final : WidgetHost {
     bool needsFrame = true;
     bool needsLayout = true;
     bool closed = false;
+    bool hidden = true;
+    bool showOnRun = true;
     std::function<void()> closedHandler;
     std::function<bool()> closeRequestHandler;
     void requestClose() {
@@ -30,7 +32,7 @@ struct Window::Impl final : WidgetHost {
     std::string autosaveName;      // settings key prefix for the remembered size
     bool restoreMaximized = false;  // applied once the window is shown
     void rememberFrame();
-    /// Maps the window, then restores a remembered maximized state.
+    /// Prepares a fresh frame before mapping, then restores a remembered maximized state.
     void show();
     bool keyWindow = true;
     double frameTime = 0;

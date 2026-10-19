@@ -1,0 +1,35 @@
+# Build the current local Forma source, including uncommitted changes.
+pkgname=forma-screenshot
+pkgver=0.1.0
+pkgrel=3
+pkgdesc='Forma screenshot tool for KDE Wayland with region, screen and window capture'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+depends=(bash glibc gcc-libs sdl3 freetype2 libglvnd fontconfig glib2 libpng zlib wl-clipboard dbus hicolor-icon-theme kwin python-gobject kservice)
+makedepends=(cmake pkgconf vulkan-headers shaderc)
+optdepends=('vulkan-icd-loader: Vulkan rendering'
+            'noto-fonts-cjk: Chinese text rendering'
+            'libnotify: Screenshot completion notifications')
+options=(!debug)
+install=forma-screenshot.install
+source=()
+sha256sums=()
+
+build() {
+  cmake -S "$startdir/../.." -B "$srcdir/build" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DFORMA_SCREENSHOT_ONLY=ON -DMAYONNAISE_BUILD_APPS=ON \
+    -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "$srcdir/build" --target forma-screenshot -j"${FORMA_BUILD_JOBS:-4}"
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install "$srcdir/build" --component forma-screenshot
+  install -Dm644 "$startdir/../../applications/screenshot/data/io.github.skjsbsnq.Forma.Screenshot.Autostart.desktop" \
+    "$pkgdir/etc/xdg/autostart/io.github.skjsbsnq.Forma.Screenshot.desktop"
+  install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+  install -Dm644 "$startdir/../../applications/screenshot/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$startdir/README.md" "$pkgdir/usr/share/doc/$pkgname/ARCH.md"
+}
