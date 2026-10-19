@@ -205,6 +205,29 @@ TEST_CASE("Secure fields never copy") {
     CHECK(host.clip.empty());
 }
 
+TEST_CASE("Secure field input purpose follows focus and live mode changes") {
+    test::TestHost host;
+    auto tf = std::make_shared<TextFieldView>("");
+    host.attach(tf, {300, 24});
+    tf->setSecure(true);
+    CHECK_FALSE(host.secureTextInput); // An unfocused field cannot alter the active input method.
+    host.dispatcher.setFocus(tf.get(), false);
+    CHECK(host.textInputActive);
+    CHECK(host.secureTextInput);
+    CHECK(host.secureWhenStarted);
+    tf->setSecure(false);
+    CHECK_FALSE(host.secureTextInput);
+    tf->setSecure(true);
+    CHECK(host.secureTextInput);
+    host.dispatcher.setFocus(nullptr, false);
+    CHECK_FALSE(host.textInputActive);
+    CHECK_FALSE(host.secureTextInput);
+    tf->setSecure(false);
+    host.dispatcher.setFocus(tf.get(), false);
+    CHECK(host.textInputActive);
+    CHECK_FALSE(host.secureWhenStarted);
+}
+
 TEST_CASE("Toggle, checkbox, slider and segmented control state") {
     test::TestHost host;
     bool last = false;

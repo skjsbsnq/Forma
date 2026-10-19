@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Forma Authentication Agent
+Name[zh_CN]=Forma 身份验证
+Comment=Authenticate privileged desktop actions
+Comment[zh_CN]=验证需要管理员权限的桌面操作
+Exec=forma-polkit-agent
+Icon=io.github.skjsbsnq.Forma.PolkitAgent
+NoDisplay=true
+Terminal=false
+Categories=System;Security;

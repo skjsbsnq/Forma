@@ -1,3 +1,4 @@
+#include "wayland_material.hpp"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
@@ -193,9 +194,25 @@ SDL_HitTestResult toSdl(HitRegion r) {
 // ---------------------------------------------------------------------------------------------
 struct PlatformWindow::Impl {
     SDL_Window* window = nullptr;
+    std::unique_ptr<WaylandMaterial> material;
+    float materialRadius = 0;
     std::function<HitRegion(Point)> hitTest;
     float scaleOverride = 0.0f;
     bool textInput = false;
+    bool secureTextInput = false;
+    bool startTextInput() {
+        if (!secureTextInput) return SDL_StartTextInput(window);
+        const SDL_PropertiesID props = SDL_CreateProperties();
+        // If properties cannot be allocated, do not start a normal input session for a password.
+        if (!props) return false;
+        const bool configured =
+            SDL_SetNumberProperty(props, SDL_PROP_TEXTINPUT_TYPE_NUMBER, SDL_TEXTINPUT_TYPE_TEXT_PASSWORD_HIDDEN) &&
+            SDL_SetNumberProperty(props, SDL_PROP_TEXTINPUT_CAPITALIZATION_NUMBER, SDL_CAPITALIZE_NONE) &&
+            SDL_SetBooleanProperty(props, SDL_PROP_TEXTINPUT_AUTOCORRECT_BOOLEAN, false);
+        const bool started = configured && SDL_StartTextInputWithProperties(window, props);
+        SDL_DestroyProperties(props);
+        return started;
+    }
 
     static SDL_HitTestResult hitTestThunk(SDL_Window* /*win*/, const SDL_Point* area, void* data) {
         auto* self = static_cast<PlatformWindow*>(data);
@@ -238,6 +255,17 @@ PlatformWindow::PlatformWindow(const WindowConfig& config) : m_impl(std::make_un
     }
     setMinimumSize(config.minWidth, config.minHeight);
     g_windows[id()] = this;
+    if (config.backgroundBlur && m_transparent) {
+        auto props = SDL_GetWindowProperties(m_impl->window);
+        auto* display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, nullptr);
+        auto* surface = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, nullptr);
+        m_impl->materialRadius = config.cornerRadius >= 0 ? config.cornerRadius : 12.0f;
+        m_impl->material = std::make_unique<WaylandMaterial>(display, surface,
+            m_impl->materialRadius / pointsPerWindowUnit(), config.compositorFrame);
+        int w = 0, h = 0;
+        SDL_GetWindowSize(m_impl->window, &w, &h);
+        m_impl->material->update(w, h, m_impl->materialRadius / pointsPerWindowUnit());
+    }
     if (!gl) return;
 
     if (!g_context) {
@@ -267,6 +295,7 @@ PlatformWindow::PlatformWindow(const WindowConfig& config) : m_impl(std::make_un
 PlatformWindow::~PlatformWindow() {
     g_windows.erase(id());
     if (m_impl->textInput) SDL_StopTextInput(m_impl->window);
+    m_impl->material.reset();
     SDL_DestroyWindow(m_impl->window);
 }
 
@@ -292,7 +321,18 @@ Size PlatformWindow::sizeInPoints() const {
     return {static_cast<float>(w) * k, static_cast<float>(h) * k};
 }
 
-void PlatformWindow::pixelSize(int& w, int& h) const { SDL_GetWindowSizeInPixels(m_impl->window, &w, &h); }
+bool PlatformWindow::hasBackgroundBlur() const {
+    return m_impl->material && m_impl->material->available();
+}
+void PlatformWindow::pixelSize(int& w, int& h) const {
+    if (m_impl->material) {
+        int sw = 0, sh = 0;
+        SDL_GetWindowSize(m_impl->window, &sw, &sh);
+        const float radius = isMaximized() || isFullscreen() ? 0 : m_impl->materialRadius / pointsPerWindowUnit();
+        m_impl->material->update(sw, sh, radius);
+    }
+    SDL_GetWindowSizeInPixels(m_impl->window, &w, &h);
+}
 
 bool PlatformWindow::isMaximized() const { return (SDL_GetWindowFlags(m_impl->window) & SDL_WINDOW_MAXIMIZED) != 0; }
 bool PlatformWindow::isFullscreen() const {
@@ -345,17 +385,26 @@ void PlatformWindow::setHitTest(std::function<HitRegion(Point)> callback) {
     SDL_SetWindowHitTest(m_impl->window, m_impl->hitTest ? &Impl::hitTestThunk : nullptr, this);
 }
 
+void PlatformWindow::setSecureTextInput(bool secure) {
+    if (m_impl->secureTextInput == secure) return;
+    m_impl->secureTextInput = secure;
+    if (m_impl->textInput) {
+        SDL_StopTextInput(m_impl->window);
+        m_impl->textInput = m_impl->startTextInput();
+    }
+}
+
 void PlatformWindow::setTextInputActive(bool active, Rect caretRect) {
     if (active) {
         float k = pointsPerWindowUnit();
         SDL_Rect r{static_cast<int>(caretRect.x / k), static_cast<int>(caretRect.y / k),
                    static_cast<int>(caretRect.width / k), static_cast<int>(caretRect.height / k)};
         SDL_SetTextInputArea(m_impl->window, &r, 0);
-        if (!m_impl->textInput) SDL_StartTextInput(m_impl->window);
+        if (!m_impl->textInput) m_impl->textInput = m_impl->startTextInput();
     } else if (m_impl->textInput) {
         SDL_StopTextInput(m_impl->window);
+        m_impl->textInput = false;
     }
-    m_impl->textInput = active;
 }
 
 bool PlatformWindow::startFileDrag(const std::vector<std::string>& paths) {

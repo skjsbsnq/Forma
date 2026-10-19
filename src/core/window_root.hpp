@@ -17,6 +17,8 @@ class WindowRootView final : public Widget {
 public:
     WindowRootView();
 
+    void configure(bool dialog, float cornerRadius, float backgroundOpacity, bool compositorFrame = false);
+    void setBackgroundOpacity(float opacity) { m_backgroundOpacity = opacity; }
     void setContent(std::shared_ptr<Widget> content);
     void setToolbar(std::shared_ptr<Widget> toolbar);
     void setTitle(const std::string& title);
@@ -40,6 +42,10 @@ public:
 private:
     std::shared_ptr<Widget> m_content;
     std::shared_ptr<TitleBarView> m_titleBar;
+    bool m_dialog = false;
+    bool m_compositorFrame = false;
+    float m_radius = -1.0f;
+    float m_backgroundOpacity = 1.0f;
     bool m_maximized = false;
     bool m_key = true;
     bool m_transparent = true;

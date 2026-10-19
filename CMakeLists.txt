@@ -10,6 +10,7 @@ if(DEFINED MAYONNAISE_BUILD_EXAMPLES)
 endif()
 option(MAYONNAISE_BUILD_TESTS "Build Mayonnaise tests" ${MAYONNAISE_IS_TOP_LEVEL})
 option(FORMA_SCREENSHOT_ONLY "Build only the standalone Forma Screenshot application" OFF)
+option(FORMA_POLKIT_AGENT_ONLY "Build only the standalone Forma polkit authentication agent" OFF)
 option(MAYONNAISE_USE_SYSTEM_DEPS "Require system packages for SDL3/FreeType/doctest instead of fetching" OFF)
 option(MAYONNAISE_VULKAN "Build the Vulkan renderer backend (used when the GPU supports it, else OpenGL)" ON)
 option(MAYONNAISE_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
@@ -25,6 +26,10 @@ include(MayonnaiseWarnings)
 include(MayonnaiseDependencies)
 include(Embed)
 
+if(MAYONNAISE_BUILD_TESTS)
+  enable_testing()
+endif()
+
 add_subdirectory(third_party)
 add_subdirectory(src)
 
@@ -33,7 +38,6 @@ if(MAYONNAISE_BUILD_APPS)
 endif()
 
 if(MAYONNAISE_BUILD_TESTS)
-  enable_testing()
   add_subdirectory(tests)
 endif()
 

@@ -25,6 +25,18 @@ struct WindowOptions {
     std::string autosaveName{};
     /// Create and initialize the window without mapping it; call Window::show() when ready.
     bool initiallyHidden = false;
+    /// Omit the title bar and traffic lights, keeping rounded clipping and the window frame.
+    bool dialog = false;
+    /// Dialog corner radius in points; negative uses the theme default.
+    float cornerRadius = -1.0f;
+    /// Request real compositor backdrop blur where supported (Wayland).
+    bool backgroundBlur = false;
+    /// Opacity of the themed window background when compositor blur is available.
+    /// Unsupported compositors retain the opaque background for readability.
+    float backgroundOpacity = 1.0f;
+    /// Let a known compositor frame effect own clipping, outline and shadow.
+    /// The client paints to its rectangular surface, avoiding two different corner contours.
+    bool compositorFrame = false;
 };
 
 /// How the app picks light or dark.

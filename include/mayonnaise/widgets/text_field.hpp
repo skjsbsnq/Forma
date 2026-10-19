@@ -17,6 +17,9 @@ enum class TextFieldStyle : std::uint8_t {
 class TextFieldView : public ControlView {
 public:
     explicit TextFieldView(std::string placeholder);
+    ~TextFieldView() override;
+    /// Erases the current input before releasing its storage (for authentication forms).
+    void clearSensitive();
 
     void setText(std::string text);
     [[nodiscard]] const std::string& text() const { return m_text; }

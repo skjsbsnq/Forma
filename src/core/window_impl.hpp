@@ -19,6 +19,9 @@ struct Window::Impl final : WidgetHost {
     EventDispatcher dispatcher;
     std::shared_ptr<WindowRootView> root;
     std::string title;
+    bool resizable = true;
+    bool backgroundBlur = false;
+    float backgroundOpacity = 1.0f;
     bool needsFrame = true;
     bool needsLayout = true;
     bool closed = false;
@@ -81,6 +84,7 @@ struct Window::Impl final : WidgetHost {
     [[nodiscard]] std::string clipboardText() const override;
     void setClipboardText(const std::string& text) override;
     void setTextInput(bool active, Rect caret) override;
+    void setSecureTextInput(bool secure) override;
     [[nodiscard]] Size windowSize() const override { return platformWindow->sizeInPoints(); }
     [[nodiscard]] float titleBarHeight() const override;
     bool startFileDrag(const std::vector<std::string>& paths) override { return platformWindow->startFileDrag(paths); }

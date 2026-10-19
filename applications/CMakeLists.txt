@@ -22,6 +22,11 @@ function(mayonnaise_app name)
           DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/${name}/mygo COMPONENT ${name})
 endfunction()
 
+if(FORMA_POLKIT_AGENT_ONLY)
+  add_subdirectory(polkit_agent)
+  return()
+endif()
+
 if(FORMA_SCREENSHOT_ONLY)
   add_subdirectory(screenshot)
   return()
@@ -45,3 +50,5 @@ add_subdirectory(portal)
 add_subdirectory(component_gallery)
 
 add_subdirectory(screenshot)
+
+add_subdirectory(polkit_agent)

@@ -122,6 +122,12 @@ Window::Impl::Impl(const platform::WindowConfig& config)
     : platformWindow(std::make_unique<platform::PlatformWindow>(config)),
       root(std::make_shared<WindowRootView>()),
       title(config.title) {
+    resizable = config.resizable;
+    backgroundBlur = config.backgroundBlur;
+    backgroundOpacity = std::clamp(config.backgroundOpacity, 0.0f, 1.0f);
+    root->configure(config.dialog, config.cornerRadius,
+                    platformWindow->hasBackgroundBlur() ? config.backgroundOpacity : 1.0f,
+                    config.compositorFrame);
     root->setHost(this);
     root->setTitle(title);
     root->onClose = [this] { requestClose(); };
@@ -172,13 +178,14 @@ void Window::Impl::dismissOverlay(Widget* overlay) {
 std::string Window::Impl::clipboardText() const { return platform::Platform::clipboardText(); }
 void Window::Impl::setClipboardText(const std::string& text) { platform::Platform::setClipboardText(text); }
 void Window::Impl::setTextInput(bool active, Rect caret) { platformWindow->setTextInputActive(active, caret); }
+void Window::Impl::setSecureTextInput(bool secure) { platformWindow->setSecureTextInput(secure); }
 
 void Window::Impl::updateCursor() { platform::Platform::setCursor(dispatcher.cursor()); }
 
 platform::HitRegion Window::Impl::hitRegion(Point p) {
     using platform::HitRegion;
     Size s = platformWindow->sizeInPoints();
-    if (!platformWindow->isMaximized() && !platformWindow->isFullscreen()) {
+    if (resizable && !platformWindow->isMaximized() && !platformWindow->isFullscreen()) {
         const float b = kResizeBorder;
         bool left = p.x < b;
         bool right = p.x >= s.width - b;
@@ -395,6 +402,9 @@ void Window::Impl::render() {
     int w = 0;
     int h = 0;
     platformWindow->pixelSize(w, h);
+    root->setBackgroundOpacity(platformWindow->hasBackgroundBlur() ? backgroundOpacity : 1.0f);
+    // Material globals can disappear while an otherwise idle password dialog is open.
+    if (backgroundBlur) scheduleFrame(frameTime + 0.25);
     auto& app = App::current();
     const Theme& theme = app.theme();
     auto& r = *app.impl().renderer;

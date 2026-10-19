@@ -225,11 +225,19 @@ void WindowRootView::setWindowState(bool maximized, bool key, bool transparent, 
     m_titleBar->m_lights->key = key;
 }
 
-float WindowRootView::windowRadius() const {
-    return m_transparent && !m_maximized ? theme().metrics.windowRadius : 0.0f;
+void WindowRootView::configure(bool dialog, float cornerRadius, float backgroundOpacity, bool compositorFrame) {
+    m_dialog = dialog;
+    m_compositorFrame = compositorFrame;
+    m_radius = cornerRadius;
+    m_backgroundOpacity = std::clamp(backgroundOpacity, 0.0f, 1.0f);
 }
 
-float WindowRootView::titleBarHeight() const { return m_titleBar->height(); }
+float WindowRootView::windowRadius() const {
+    if (m_compositorFrame) return 0.0f;
+    return m_transparent && !m_maximized ? (m_radius >= 0 ? m_radius : theme().metrics.windowRadius) : 0.0f;
+}
+
+float WindowRootView::titleBarHeight() const { return m_dialog ? 0.0f : m_titleBar->height(); }
 
 Size WindowRootView::measureContent(Size available) { return available; }
 
@@ -250,10 +258,10 @@ void WindowRootView::draw(Painter& p) {
     const Theme& t = theme();
     const float radius = windowRadius();
     Rect bounds = frame();
-    p.fillRoundedRect(bounds, radius, t.colors.windowBackground);
+    p.fillRoundedRect(bounds, radius, t.colors.windowBackground.withAlpha(m_backgroundOpacity));
     p.pushClip(bounds, radius);
     // Chrome can be faded out (media playback); fully hidden in fullscreen, like macOS.
-    const float chrome = m_fullscreen ? 0.0f : sample(m_chrome);
+    const float chrome = (m_fullscreen || m_dialog) ? 0.0f : sample(m_chrome);
     m_titleBar->setOpacity(chrome);
     paintChildren(p);
     p.popClip();
@@ -265,6 +273,10 @@ void WindowRootView::paintWindowFrame(Painter& p) {
     const Theme& t = theme();
     const float px = 1.0f / p.scale();
     Rect bounds = frame();
+    if (m_dialog) {
+        p.strokeRoundedRect(bounds, radius, t.isDark() ? Color::white(0.16f) : Color::black(0.16f), px);
+        return;
+    }
     p.strokeRoundedRect(bounds, radius, t.colors.windowBorder, px);
     p.strokeRoundedRect(bounds.inset(px), radius - px, t.colors.windowHighlight, px);
 }

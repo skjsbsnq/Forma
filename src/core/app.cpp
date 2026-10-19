@@ -241,6 +241,11 @@ Window& App::createWindow(const WindowOptions& options) {
     config.minWidth = options.minWidth;
     config.minHeight = options.minHeight;
     config.resizable = options.resizable;
+    config.dialog = options.dialog;
+    config.cornerRadius = options.cornerRadius;
+    config.backgroundBlur = options.backgroundBlur;
+    config.backgroundOpacity = options.backgroundOpacity;
+    config.compositorFrame = options.compositorFrame;
     bool maximized = false;
     if (!options.autosaveName.empty()) {
         const Settings& s = *m_impl->settings;

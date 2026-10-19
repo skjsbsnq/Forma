@@ -65,6 +65,8 @@ public:
     [[nodiscard]] virtual std::string clipboardText() const = 0;
     virtual void setClipboardText(const std::string& text) = 0;
     virtual void setTextInput(bool active, Rect caret) = 0;
+    /// Hint to the platform input method; defaults to no-op for custom hosts.
+    virtual void setSecureTextInput(bool /*secure*/) {}
     [[nodiscard]] virtual Size windowSize() const = 0;
     /// Height of the window's title bar / toolbar strip. Full-size content insets by this.
     [[nodiscard]] virtual float titleBarHeight() const { return 0; }

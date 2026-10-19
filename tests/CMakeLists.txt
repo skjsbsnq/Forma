@@ -78,3 +78,21 @@ endif()
 if(TARGET screenshot_backend_test)
   add_test(NAME screenshot_backend COMMAND screenshot_backend_test)
 endif()
+
+if(FORMA_WAYLAND_SCANNER AND MAYONNAISE_HAS_WAYLAND_MATERIAL)
+  pkg_check_modules(FORMA_WAYLAND_TEST QUIET IMPORTED_TARGET wayland-client)
+  pkg_check_modules(FORMA_WAYLAND_SERVER QUIET IMPORTED_TARGET wayland-server)
+  if(FORMA_WAYLAND_SERVER_FOUND)
+    foreach(protocol ext-background-effect-v1 kos-surface-shape-v1)
+      set(server_header "${CMAKE_CURRENT_BINARY_DIR}/${protocol}-server.h")
+      add_custom_command(OUTPUT "${server_header}"
+        COMMAND "${FORMA_WAYLAND_SCANNER}" server-header
+          "${PROJECT_SOURCE_DIR}/src/platform/protocols/${protocol}.xml" "${server_header}"
+        DEPENDS "${PROJECT_SOURCE_DIR}/src/platform/protocols/${protocol}.xml")
+      target_sources(mayonnaise_tests PRIVATE "${server_header}")
+    endforeach()
+    target_sources(mayonnaise_tests PRIVATE test_wayland_material.cpp)
+    target_include_directories(mayonnaise_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(mayonnaise_tests PRIVATE PkgConfig::FORMA_WAYLAND_SERVER PkgConfig::FORMA_WAYLAND_TEST)
+  endif()
+endif()

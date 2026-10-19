@@ -2,6 +2,7 @@
 #include "mayonnaise/widgets/text_field.hpp"
 
 #include <cmath>
+#include <cstring>
 
 #include "../core/utf8.hpp"
 #include "../render/font.hpp"
@@ -25,8 +26,43 @@ TextFieldView::TextFieldView(std::string placeholder) : m_placeholder(uiText(pla
     setCursor(CursorShape::IBeam);
 }
 
+namespace {
+void wipeText(std::string& text) {
+    volatile char* bytes = text.data();
+    for (size_t i = 0; i < text.size(); ++i) bytes[i] = 0;
+    text.clear();
+}
+void eraseText(std::string& text, size_t offset, size_t count, bool secure) {
+    if (!secure) {
+        text.erase(offset, count);
+        return;
+    }
+    const size_t size = text.size();
+    count = std::min(count, size - offset);
+    const size_t remaining = size - count;
+    std::memmove(text.data() + offset, text.data() + offset + count, size - offset - count);
+    // Erase before resize: bytes in the former tail are still within the live string.
+    volatile char* bytes = text.data();
+    for (size_t i = remaining; i < size; ++i) bytes[i] = 0;
+    text.resize(remaining);
+}
+}
+
+TextFieldView::~TextFieldView() {
+    if (m_secure) wipeText(m_text);
+}
+
+void TextFieldView::clearSensitive() {
+    wipeText(m_text);
+    m_caret = m_anchor = 0;
+    m_scrollX = 0;
+    m_cacheDirty = true;
+    invalidate();
+}
+
 void TextFieldView::setText(std::string text) {
     if (text == m_text) return;
+    if (m_secure) wipeText(m_text);
     m_text = std::move(text);
     m_caret = m_anchor = m_text.size();
     m_cacheDirty = true;
@@ -44,7 +80,9 @@ void TextFieldView::setStyle(TextFieldStyle style) {
 }
 
 void TextFieldView::setSecure(bool secure) {
+    if (m_secure == secure) return;
     m_secure = secure;
+    if (isFocused() && host()) host()->setSecureTextInput(secure);
     m_cacheDirty = true;
     invalidate();
 }
@@ -199,7 +237,7 @@ void TextFieldView::moveCaret(size_t to, bool extend) {
 void TextFieldView::deleteSelection() {
     size_t a = std::min(m_anchor, m_caret);
     size_t b = std::max(m_anchor, m_caret);
-    m_text.erase(a, b - a);
+    eraseText(m_text, a, b - a, m_secure);
     m_caret = m_anchor = a;
 }
 
@@ -212,6 +250,7 @@ void TextFieldView::insert(std::string_view s) {
     if (hasSelection()) deleteSelection();
     m_text.insert(m_caret, clean);
     m_caret += clean.size();
+    if (m_secure) wipeText(clean);
     m_anchor = m_caret;
     changed();
 }
@@ -221,7 +260,7 @@ void TextFieldView::deleteBackward(bool word) {
         deleteSelection();
     } else if (m_caret > 0) {
         size_t from = word ? wordStart(m_caret) : utf8::prevBoundary(m_text, m_caret);
-        m_text.erase(from, m_caret - from);
+        eraseText(m_text, from, m_caret - from, m_secure);
         m_caret = m_anchor = from;
     } else {
         return;
@@ -234,7 +273,7 @@ void TextFieldView::deleteForward(bool word) {
         deleteSelection();
     } else if (m_caret < m_text.size()) {
         size_t to = word ? wordEnd(m_caret) : utf8::nextBoundary(m_text, m_caret);
-        m_text.erase(m_caret, to - m_caret);
+        eraseText(m_text, m_caret, to - m_caret, m_secure);
     } else {
         return;
     }
@@ -303,6 +342,7 @@ void TextFieldView::draw(Painter& p) {
         if (auto* h = host()) {
             h->scheduleFrame(next);
             Rect caretRect{x0 + xForIndex(m_caret), r.y, 2, r.height};
+            h->setSecureTextInput(m_secure);
             h->setTextInput(true, caretRect);
         }
     }
@@ -361,7 +401,7 @@ void TextFieldView::onPointerUp(const PointerEvent& e) {
     if (m_clearPressed) {
         m_clearPressed = false;
         if (clearButtonRect().outset(3).contains(e.position)) {
-            m_text.clear();
+            if (m_secure) wipeText(m_text); else m_text.clear();
             m_caret = m_anchor = 0;
             m_scrollX = 0;
             changed();
@@ -397,7 +437,7 @@ bool TextFieldView::onKeyDown(const KeyEvent& e) {
             return true;
         case Key::Escape:
             if (m_style == TextFieldStyle::Search && !m_text.empty()) {
-                m_text.clear();
+                if (m_secure) wipeText(m_text); else m_text.clear();
                 m_caret = m_anchor = 0;
                 changed();
                 return true;
@@ -439,7 +479,11 @@ bool TextFieldView::onTextInput(const TextInputEvent& e) {
 
 void TextFieldView::onFocusChanged(bool focused) {
     ControlView::onFocusChanged(focused);
-    if (auto* h = host()) h->setTextInput(focused, frame());
+    if (auto* h = host()) {
+        if (focused) h->setSecureTextInput(m_secure);
+        h->setTextInput(focused, frame());
+        if (!focused) h->setSecureTextInput(false);
+    }
     if (focused) {
         resetBlink();
     } else {

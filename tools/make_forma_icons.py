@@ -224,6 +224,25 @@ screenshot_body='''<rect x="134" y="157" width="244" height="198" rx="29" fill="
 <circle cx="346" cy="338" r="3" fill="#2478C9"/>'''
 icons['screenshot']=icon('Forma Screenshot',('#56DAE9','#2364CF'),screenshot_body,screenshot_defs)
 
+auth_defs='''<linearGradient id="authSteel" x1="192" y1="116" x2="326" y2="270" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset=".28" stop-color="#E4EBF1"/><stop offset=".56" stop-color="#A3B4C2"/><stop offset=".8" stop-color="#F6FAFF"/><stop offset="1" stop-color="#8195A6"/></linearGradient>
+<linearGradient id="authBody" x1="173" y1="235" x2="330" y2="378" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset=".52" stop-color="#FFF9E9"/><stop offset="1" stop-color="#EED9B1"/></linearGradient>
+<linearGradient id="authKey" x1="248" y1="278" x2="266" y2="337" gradientUnits="userSpaceOnUse"><stop stop-color="#B96A21"/><stop offset="1" stop-color="#DB9F47"/></linearGradient>
+<linearGradient id="authShield" x1="325" y1="303" x2="393" y2="403" gradientUnits="userSpaceOnUse"><stop stop-color="#5CE2D4"/><stop offset="1" stop-color="#0C8E91"/></linearGradient>'''
+auth_body='''<rect x="150" y="235" width="212" height="153" rx="34" fill="#9A4B18" opacity=".32" filter="url(#shadow)" transform="translate(0 11)"/>
+<path d="M192 241V191C192 104 320 104 320 191V241" stroke="#A45E28" stroke-opacity=".2" stroke-width="32" transform="translate(0 5)"/>
+<path d="M192 241V191C192 104 320 104 320 191V241" stroke="url(#authSteel)" stroke-width="29" stroke-linecap="round"/>
+<path d="M184 224V191C184 145 216 119 251 119" stroke="white" stroke-opacity=".8" stroke-width="3" stroke-linecap="round"/>
+<rect x="149" y="229" width="214" height="151" rx="33" fill="url(#authBody)" stroke="white" stroke-opacity=".9" stroke-width="2.5"/>
+<path d="M177 237H335" stroke="white" stroke-opacity=".95" stroke-width="3" stroke-linecap="round"/>
+<path d="M183 368H326" stroke="#C09A60" stroke-opacity=".28" stroke-width="2" stroke-linecap="round"/>
+<circle cx="256" cy="290" r="16" fill="url(#authKey)"/>
+<path d="M248 300H264L270 333Q270 338 265 338H247Q242 338 242 333Z" fill="url(#authKey)"/>
+<path d="M329 303L361 291L394 303V340Q394 378 361 397Q329 378 329 340Z" fill="#8A511E" opacity=".24" filter="url(#soft)" transform="translate(0 6)"/>
+<path d="M325 300L359 287L394 300V339Q394 377 359 397Q325 377 325 339Z" fill="url(#authShield)" stroke="#E7FFFB" stroke-opacity=".9" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M338 339L353 354L380 324" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M333 305L359 295L384 305" stroke="white" stroke-opacity=".45" stroke-width="2" stroke-linecap="round"/>'''
+icons['polkit_agent']=icon('Forma Authentication',('#FFD780','#ED8A31'),auth_body,auth_defs)
+
 for folder,svg in icons.items():
     if len(sys.argv) > 1 and folder not in sys.argv[1:]:
         continue
@@ -232,7 +251,8 @@ for folder,svg in icons.items():
     if not existing:
         # New apps name their icon after their desktop id.
         desktop_ids={'app_store':'io.github.skjsbsnq.Forma.AppStore',
-                     'screenshot':'io.github.skjsbsnq.Forma.Screenshot'}
+                     'screenshot':'io.github.skjsbsnq.Forma.Screenshot',
+                     'polkit_agent':'io.github.skjsbsnq.Forma.PolkitAgent'}
         target=data/desktop_ids.get(folder, folder+'.svg')
     else:
         target=existing[0]

@@ -69,7 +69,14 @@ public:
     void dismissOverlay(Widget* o) override { dispatcher.removeOverlay(o); }
     [[nodiscard]] std::string clipboardText() const override { return clip; }
     void setClipboardText(const std::string& t) override { clip = t; }
-    void setTextInput(bool, Rect) override {}
+    bool textInputActive = false;
+    bool secureTextInput = false;
+    bool secureWhenStarted = false;
+    void setTextInput(bool active, Rect) override {
+        textInputActive = active;
+        if (active) secureWhenStarted = secureTextInput;
+    }
+    void setSecureTextInput(bool secure) override { secureTextInput = secure; }
     [[nodiscard]] Size windowSize() const override { return {800, 600}; }
     std::string clip;
 

@@ -1,0 +1,30 @@
+# Build the current local Forma tree; does not enable or switch any agent.
+pkgname=forma-polkit-agent
+pkgver=0.1.0
+pkgrel=3
+pkgdesc='Forma graphical polkit authentication agent with a Tahoe-style dialog'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+depends=(glibc gcc-libs sdl3 freetype2 libglvnd fontconfig glib2 polkit wayland)
+# Preserve Plasma's dependency while replacing the actual KDE agent package.
+provides=(polkit-kde-agent)
+conflicts=(polkit-kde-agent)
+makedepends=(cmake ninja pkgconf vulkan-headers shaderc)
+optdepends=('vulkan-icd-loader: Vulkan rendering' 'noto-fonts-cjk: CJK policy messages')
+options=(!debug)
+source=()
+sha256sums=()
+build() {
+  cmake -S "$startdir/../.." -B "$srcdir/build" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DFORMA_POLKIT_AGENT_ONLY=ON -DMAYONNAISE_BUILD_APPS=ON \
+    -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "$srcdir/build" --target forma-polkit-agent -j"${FORMA_BUILD_JOBS:-4}"
+}
+package() {
+  DESTDIR="$pkgdir" cmake --install "$srcdir/build" --component forma-polkit-agent
+  install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+  install -Dm644 "$startdir/README.md" "$pkgdir/usr/share/doc/$pkgname/ARCH.md"
+}
