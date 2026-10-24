@@ -19,6 +19,10 @@ struct SidebarItem {
     /// When set, the icon is drawn white on a coloured rounded tile (System Settings style).
     std::optional<Color> tile;
     std::string badge;
+    std::string subtitle;
+    Icon actionIcon = Icon::None;
+    bool busy = false;
+    bool enabled = true;
     bool isHeader = false;
 
     SidebarItem(std::string id_, Icon icon_, std::string title_)
@@ -49,6 +53,7 @@ public:
     void setSelection(const std::string& id, bool notify = false);
     [[nodiscard]] const std::string& selection() const { return m_selection; }
     void setOnSelect(std::function<void(const std::string&)> fn) { m_onSelect = std::move(fn); }
+    void setOnAction(std::function<void(const std::string&)> fn) { m_onAction = std::move(fn); }
     void setSelectionStyle(SidebarSelectionStyle s);
     /// Optional widget shown above the list (search field, account card).
     void setHeader(std::shared_ptr<Widget> header);
@@ -72,6 +77,7 @@ private:
     [[nodiscard]] float contentHeight() const;
     [[nodiscard]] int rowAt(Point p) const;
     [[nodiscard]] Rect rowRect(int index) const;
+    [[nodiscard]] Rect actionRect(int index) const;
     void moveSelection(int delta);
     void clampScroll();  // updates the scroll range; m_scroll follows m_physics
     void stepScroll();
@@ -79,10 +85,13 @@ private:
     std::vector<SidebarItem> m_items;
     std::string m_selection;
     std::function<void(const std::string&)> m_onSelect;
+    std::function<void(const std::string&)> m_onAction;
     SidebarSelectionStyle m_style = SidebarSelectionStyle::Neutral;
     std::shared_ptr<Widget> m_header;
     int m_hovered = -1;
     int m_pressed = -1;
+    bool m_actionHovered = false;
+    std::string m_pressedAction;
     float m_scroll = 0;
     ScrollPhysics m_physics;
     Animated<Rect> m_highlight;  // selection pill glides between rows

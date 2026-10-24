@@ -58,6 +58,13 @@ if(TARGET forma-app-store)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  pkg_check_modules(FINDER_TEST_GIO REQUIRED IMPORTED_TARGET gio-2.0)
+  add_executable(finder_volume_tests test_finder_volumes.cpp ${PROJECT_SOURCE_DIR}/applications/finder/volumes.cpp)
+  target_include_directories(finder_volume_tests PRIVATE ${PROJECT_SOURCE_DIR}/applications/finder ${PROJECT_SOURCE_DIR}/src)
+  target_link_libraries(finder_volume_tests PRIVATE mayonnaise::mayonnaise PkgConfig::FINDER_TEST_GIO)
+  mayonnaise_set_warnings(finder_volume_tests)
+  mayonnaise_set_sanitizers(finder_volume_tests)
+  add_test(NAME finder_volume_tests COMMAND finder_volume_tests)
   add_executable(finder_open_tests test_finder_open.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/applications.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/file_model.cpp

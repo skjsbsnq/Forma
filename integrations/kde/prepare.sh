@@ -2,9 +2,19 @@
 set -eu
 base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo="$base/../xdg-desktop-portal-kde"
-if git -C "$repo" apply --check "$base/forma-portal.patch" 2>/dev/null; then
+
+# 子模块固定在 skjsbsnq fork 的 489f05eb（"Integrate Forma styling, file picker and
+# previews into KDE portal"），该提交已经内含 Forma 集成；forma-portal.patch 只适用于
+# 更早的 KDE 检出。先判断是否已集成，避免重复打补丁导致 prepare() 失败。
+integrated() {
+    [ -f "$repo/src/formastyle.cpp" ] && grep -q 'formastyle\.cpp' "$repo/src/CMakeLists.txt"
+}
+
+if integrated; then
+    :
+elif git -C "$repo" apply --check "$base/forma-portal.patch" 2>/dev/null; then
     git -C "$repo" apply "$base/forma-portal.patch"
-elif ! git -C "$repo" apply --reverse --check "$base/forma-portal.patch"; then
+elif ! git -C "$repo" apply --reverse --check "$base/forma-portal.patch" 2>/dev/null; then
     echo 'KDE checkout has incompatible changes; refusing to overwrite.' >&2
     exit 1
 fi

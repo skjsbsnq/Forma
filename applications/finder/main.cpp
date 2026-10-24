@@ -30,6 +30,7 @@
 #include "panels.hpp"
 #include "preview_cache.hpp"
 #include "views.hpp"
+#include "volumes.hpp"
 
 namespace fs = std::filesystem;
 using namespace mayo;
@@ -133,6 +134,7 @@ int main(int argc, char** argv) {
     std::function<void()> syncSettings;  // refreshes the Settings window's controls while it is open
     window.setTitleVisible(false);  // the toolbar shows the folder name after the navigation buttons
     const bool demo = std::getenv("MAYO_DEMO") != nullptr;  // never launch other programs from demo runs
+    const bool demoDevices = demo && std::string(std::getenv("MAYO_DEMO")).find("devices") != std::string::npos;
     if (demo) {
         // The MIME detector starts an external tool; demo runs keep that in-process, and a stream of helper
         // processes at startup would make a screenshot of the very first frame show every file as binary.
@@ -140,6 +142,18 @@ int main(int argc, char** argv) {
     }
 
     auto browser = std::make_shared<Browser>();
+    std::vector<DeviceVolume> devices;
+    std::string diskServiceError, diskStatus, activeDevice;
+    bool diskBusy = false;
+    int diskNoticeGeneration = 0;
+    auto deviceForPath = [&](const std::string& path) -> const DeviceVolume* {
+        const DeviceVolume* found = nullptr;
+        for (const auto& v : devices) {
+            if (v.visible() && !v.mountPoint.empty() && isInside(path, v.mountPoint) &&
+                (!found || v.mountPoint.size() > found->mountPoint.size())) found = &v;
+        }
+        return found;
+    };
     ViewMode mode = ViewMode::Icons;
 
     struct HistoryItem {
@@ -230,7 +244,7 @@ int main(int argc, char** argv) {
     }
 
     auto sidebar = Sidebar(std::vector<SidebarItem>{});
-    auto split = SplitView(sidebar, Element(page)).sidebarWidth(200).sidebarLimits(160, 300);
+    auto split = SplitView(sidebar, Element(page)).sidebarWidth(232).sidebarLimits(200, 320);
 
     auto backButton = Button(Icon::ChevronLeft).style(ButtonStyle::Borderless).tooltip("后退（Alt+←）");
     auto forwardButton = Button(Icon::ChevronRight).style(ButtonStyle::Borderless).tooltip("前进（Alt+→）");
@@ -241,6 +255,7 @@ int main(int argc, char** argv) {
     auto actionMenu = Menu("", {}).icon(Icon::Ellipsis).borderless().tooltip("操作");
     auto searchField = SearchField("搜索").width(170);
     auto emptyTrashButton = Button("清空").tooltip("清空回收站（Ctrl+Shift+Delete）");
+    auto ejectButton = Button("弹出").icon(Icon::Eject).style(ButtonStyle::Borderless).tooltip("安全弹出当前设备（Ctrl+E）");
 
     auto quickLook = std::make_shared<QuickLookView>(browser);
     auto menu = std::make_shared<MenuView>(std::vector<MenuItem>{});
@@ -289,9 +304,12 @@ int main(int argc, char** argv) {
         }
         if (auto free = availableSpace(b.path == kRecents ? home : b.path)) text += ", " + formatSize(*free) + " 可用";
         statusLabel.setText(text);
-        const bool busy = ops.busy();
+        const bool busy = ops.busy() || diskBusy;
         opSpinner.setHidden(!busy);
-        opLabel.setText(busy ? ops.status() : std::string());
+        opLabel.setText(diskBusy || !diskStatus.empty() ? diskStatus : ops.busy() ? ops.status() : std::string());
+        const auto* device = deviceForPath(b.path);
+        ejectButton.setHidden(!device || !device->canRemove());
+        ejectButton.setDisabled(diskBusy || ops.busy());
         sizeSlider.setHidden(mode != ViewMode::Icons);
         emptyTrashButton.setHidden(!isInside(b.path, trashFilesDirectory()) || b.searching);
         emptyTrashButton.setDisabled(b.entries.empty());
@@ -315,6 +333,7 @@ int main(int argc, char** argv) {
             for (const auto& v : mountedVolumes()) {
                 if (v.mountPoint == browser->path) sel = v.mountPoint;
             }
+            if (const auto* v = deviceForPath(browser->path)) sel = v->id;
         }
         sidebar.selection(sel);
     };
@@ -1167,6 +1186,7 @@ int main(int argc, char** argv) {
     menu->setOnDismiss([&] { app.post([&] { if (!quickLook->isShown()) focusView(); }); });
 
     // The toolbar's action menu is rebuilt whenever it might have changed.
+    std::function<void(const std::string&)> removeVolume;
     refreshActionMenu = [&] {
         std::vector<MenuItem> items{
             MenuItem("新建文件夹", newFolder).withIcon(Icon::FolderPlus).withShortcut("Ctrl+Shift+N").disabled(!isRealFolder() || inTrash()),
@@ -1177,6 +1197,11 @@ int main(int argc, char** argv) {
             MenuItem("在终端中打开", openTerminalHere).withIcon(Icon::Terminal),
             MenuItem::separator(),
         };
+        if (const auto* v = deviceForPath(browser->path); v && v->canRemove()) {
+            items.push_back(MenuItem("安全弹出“" + v->name + "”", [&, id = v->id] { removeVolume(id); })
+                                .withIcon(Icon::Eject).withShortcut("Ctrl+E").disabled(diskBusy || ops.busy()));
+            items.push_back(MenuItem::separator());
+        }
         if (inTrash()) {
             items.push_back(MenuItem("清空回收站", emptyTrash).asDestructive().disabled(browser->entries.empty()));
             items.push_back(MenuItem::separator());
@@ -1194,12 +1219,149 @@ int main(int argc, char** argv) {
         for (const auto& f : favorites) items.emplace_back(f.path, placeIcon(f.path), f.title);
         items.push_back(SidebarItem::header("位置"));
         items.emplace_back("/", Icon::HardDrive, "计算机");
-        for (const auto& v : mountedVolumes()) items.emplace_back(v.mountPoint, Icon::HardDrive, v.name);
+        for (const auto& v : mountedVolumes()) {
+            if (std::none_of(devices.begin(), devices.end(), [&](const auto& d) { return d.mountPoint == v.mountPoint; }))
+                items.emplace_back(v.mountPoint, Icon::HardDrive, v.name);
+        }
         items.emplace_back(trashFilesDirectory(), Icon::Trash, "回收站");
+        items.push_back(SidebarItem::header("外接设备"));
+        const DeviceVolume* active = nullptr;
+        for (const auto& v : devices) if (v.id == activeDevice) active = &v;
+        size_t count = 0;
+        for (const auto& v : devices) {
+            if (!v.visible()) continue;
+            ++count;
+            SidebarItem item(v.id, Icon::HardDrive, v.name);
+            item.tile = v.external ? theme().colors.green : theme().colors.accent;
+            item.busy = diskBusy && active && sameDevice(*active, v);
+            const std::string capacity = v.size ? formatSize(v.size) + " · " : "";
+            item.subtitle = item.busy ? (diskStatus.find("挂载") != std::string::npos ? "正在挂载…" : "正在弹出…") : capacity + (v.mountPoint.empty() ? "未挂载" :
+                                                                 v.readOnly ? "已挂载 · 只读" : "已挂载");
+            item.enabled = !diskBusy;
+            if (v.canRemove()) item.actionIcon = Icon::Eject;
+            items.push_back(std::move(item));
+        }
+        if (!count || !diskServiceError.empty()) {
+            SidebarItem hint("devices:empty", Icon::HardDrive, diskServiceError.empty() ? "尚未连接设备" : "磁盘服务不可用");
+            hint.subtitle = diskServiceError.empty() ? "插入 U 盘后在这里打开" : "请安装或启动 UDisks2";
+            hint.enabled = false;
+            items.push_back(std::move(hint));
+        }
         sidebar.setItems(std::move(items));
+        updateChrome();
     };
-    sidebar.onSelect([&](const std::string& id) {
+
+    auto diskNotice = [&](std::string message) {
+        diskStatus = std::move(message);
+        const int generation = ++diskNoticeGeneration;
+        updateStatus();
+        app.after(6, [&, generation] {
+            if (generation == diskNoticeGeneration && !diskBusy) { diskStatus.clear(); updateStatus(); }
+        });
+    };
+    // Start after the navigation/controller callbacks exist; destruction joins the worker before they disappear.
+    VolumeManager volumeManager(app, [&](std::vector<DeviceVolume> fresh, std::string error) {
+        if (demoDevices) return;
+        if (!error.empty()) {
+            diskServiceError = std::move(error);
+            rebuildSidebar();
+            updateStatus();
+            return;
+        }
+        std::vector<std::string> vanished;
+        for (const auto& old : devices) {
+            if (old.mountPoint.empty()) continue;
+            const bool present = std::any_of(fresh.begin(), fresh.end(), [&](const auto& v) {
+                return v.id == old.id && v.mountPoint == old.mountPoint;
+            });
+            if (!present) vanished.push_back(old.mountPoint);
+        }
+        devices = std::move(fresh);
+        diskServiceError = std::move(error);
+        bool leftDevice = false;
+        for (const auto& mount : vanished) {
+            if (isInside(browser->path, mount)) {
+                quickLook->dismiss();
+                navigateTo(home, {}, false);
+                leftDevice = true;
+            }
+            std::erase_if(back, [&](const auto& h) { return isInside(h.path, mount); });
+            std::erase_if(forward, [&](const auto& h) { return isInside(h.path, mount); });
+            std::erase_if(clipboard.paths, [&](const auto& p) { return isInside(p, mount); });
+        }
+        columnBrowser->roots = {home, "/", trashFilesDirectory()};
+        for (const auto& v : mountedVolumes()) columnBrowser->roots.push_back(v.mountPoint);
+        for (const auto& v : devices) if (v.visible() && !v.mountPoint.empty()) {
+            if (std::find(columnBrowser->roots.begin(), columnBrowser->roots.end(), v.mountPoint) == columnBrowser->roots.end())
+                columnBrowser->roots.push_back(v.mountPoint);
+        }
+        listingCache.clear();
+        if (mode == ViewMode::Columns) columnBrowser->rebuild(false);
+        rebuildSidebar();
+        updateStatus();
+        if (leftDevice && !diskBusy) diskNotice("设备已断开，已返回主目录");
+    });
+    removeVolume = [&](const std::string& id) {
+        if (demo || diskBusy) return;
+        if (ops.busy()) { showAlert("设备正在使用中", "请等待文件操作完成后再弹出。"); return; }
+        auto selected = std::find_if(devices.begin(), devices.end(), [&](const auto& v) { return v.id == id; });
+        if (selected == devices.end()) return;
+        const auto device = *selected;
+        if (!device.canRemove()) return;
+        // Release our own previews/searches and folder watches before asking UDisks to unmount.
+        previews.cancelPending();
+        for (const auto& v : devices) if (sameDevice(device, v) && !v.mountPoint.empty() && isInside(browser->path, v.mountPoint)) {
+            quickLook->dismiss();
+            navigateTo(home, {}, false);
+            break;
+        }
+        diskBusy = true;
+        activeDevice = id;
+        ++diskNoticeGeneration;
+        diskStatus = "正在弹出“" + device.name + "”…";
+        rebuildSidebar();
+        updateStatus();
+        volumeManager.perform(id, VolumeManager::Action::Remove, [&, name = device.name](VolumeManager::Result result) {
+            diskBusy = false;
+            activeDevice.clear();
+            rebuildSidebar();
+            diskNotice(result.error.empty() ? "“" + name + (result.poweredOff ? "”已安全弹出，可以拔出设备" : "”已卸载，可以拔出设备") : "弹出失败");
+            if (!result.error.empty()) showAlert("无法弹出“" + name + "”", result.error);
+        });
+    };
+    sidebar.node()->setOnAction([&](const std::string& id) { removeVolume(id); });
+    ejectButton.onClick([&] { if (const auto* v = deviceForPath(browser->path)) removeVolume(v->id); });
+    sidebar.onSelect([&](std::string id) {
         if (id.empty()) return;
+        auto selected = std::find_if(devices.begin(), devices.end(), [&](const auto& v) { return v.id == id; });
+        if (selected != devices.end()) {
+            if (diskBusy) return;
+            const auto device = *selected;
+            if (!device.mountPoint.empty()) { navigateTo(device.mountPoint, {}, true); return; }
+            if (demo) return;
+            diskBusy = true;
+            activeDevice = id;
+            ++diskNoticeGeneration;
+            diskStatus = "正在挂载“" + device.name + "”…";
+            rebuildSidebar();
+            updateStatus();
+            volumeManager.perform(id, VolumeManager::Action::Mount, [&, id, name = device.name](VolumeManager::Result result) {
+                diskBusy = false;
+                activeDevice.clear();
+                rebuildSidebar();
+                if (!result.error.empty()) {
+                    diskNotice("挂载失败");
+                    showAlert("无法挂载“" + name + "”", result.error);
+                } else {
+                    // Update the cached mount immediately so selection and the toolbar don't wait for polling.
+                    for (auto& v : devices) if (v.id == id) v.mountPoint = result.mountPoint;
+                    rebuildSidebar();
+                    navigateTo(result.mountPoint, {}, true);
+                    diskNotice("“" + name + "”已挂载");
+                }
+            });
+            return;
+        }
         std::error_code ec;
         if (id == trashFilesDirectory()) fs::create_directories(id, ec);
         navigateTo(id, {}, true);
@@ -1215,6 +1377,7 @@ int main(int argc, char** argv) {
         titleLabel,
         Spacer(),
         emptyTrashButton,
+        ejectButton,
         viewControl,
         ToolbarGroup({actionMenu}),
         searchField,
@@ -1246,6 +1409,9 @@ int main(int argc, char** argv) {
         }
         if (ctrl && !shift) {
             switch (e.key) {
+                case Key::E:
+                    if (const auto* v = deviceForPath(browser->path); v && v->canRemove()) removeVolume(v->id);
+                    return true;
                 case Key::Num1: setMode(ViewMode::Icons); return true;
                 case Key::Num2: setMode(ViewMode::List); return true;
                 case Key::Num3: setMode(ViewMode::Columns); return true;
@@ -1293,6 +1459,22 @@ int main(int argc, char** argv) {
 
     // Start ------------------------------------------------------------------------------------------------------
     window.setContent(split);
+    if (demoDevices) {
+        DeviceVolume mounted;
+        mounted.id = "demo:studio";
+        mounted.drive = "demo:drive1";
+        mounted.name = "Studio USB";
+        mounted.mountPoint = argc > 1 ? expandUser(argv[1]) : home;
+        mounted.size = 128ULL * 1000 * 1000 * 1000;
+        mounted.external = mounted.mountable = mounted.canPowerOff = true;
+        DeviceVolume unmounted = mounted;
+        unmounted.id = "demo:travel";
+        unmounted.drive = "demo:drive2";
+        unmounted.name = "随行备份";
+        unmounted.size = 32ULL * 1000 * 1000 * 1000;
+        unmounted.mountPoint.clear();
+        devices = {mounted, unmounted};
+    }
     rebuildSidebar();
 
     // Restore the last session's choices.

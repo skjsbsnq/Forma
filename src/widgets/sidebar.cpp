@@ -15,7 +15,7 @@ constexpr float kHeaderGap = 10;
 SidebarView::SidebarView(std::vector<SidebarItem> items) : m_items(std::move(items)) {
     m_physics.setBouncesWhenFitting(false, true);
     for (const auto& it : m_items) {
-        if (!it.isHeader) {
+        if (!it.isHeader && it.enabled) {
             m_selection = it.id;
             break;
         }
@@ -25,6 +25,9 @@ SidebarView::SidebarView(std::vector<SidebarItem> items) : m_items(std::move(ite
 void SidebarView::setItems(std::vector<SidebarItem> items) {
     m_items = std::move(items);
     m_hovered = -1;
+    m_pressedAction.clear();
+    m_actionHovered = false;
+    m_highlight.set({});
     invalidateLayout();
 }
 
@@ -37,10 +40,10 @@ void SidebarView::setSelection(const std::string& id, bool notify) {
         if (m_items[static_cast<size_t>(i)].id == m_selection) oldIndex = i;
         if (m_items[static_cast<size_t>(i)].id == id) newIndex = i;
     }
-    if (newIndex < 0) return;
+    if (newIndex < 0 && !id.empty()) return;
     m_selection = id;
     // Glide the selection pill from the old row to the new one (positions relative to the list).
-    if (oldIndex >= 0 && host()) {
+    if (oldIndex >= 0 && newIndex >= 0 && host()) {
         Rect from = rowRect(oldIndex).translated({-frame().x, -listTop() + m_scroll});
         Rect to = rowRect(newIndex).translated({-frame().x, -listTop() + m_scroll});
         m_highlight.set(m_highlight.isAnimating(now()) ? m_highlight.value(now()) : from);
@@ -49,7 +52,9 @@ void SidebarView::setSelection(const std::string& id, bool notify) {
         m_highlight.set({});
     }
     invalidate();
-    if (notify && m_onSelect) m_onSelect(m_selection);
+    // A controller may rebuild/restore selection while handling this callback.
+    const auto selectedId = m_selection;
+    if (notify && m_onSelect) m_onSelect(selectedId);
 }
 
 void SidebarView::setSelectionStyle(SidebarSelectionStyle s) {
@@ -66,7 +71,7 @@ void SidebarView::setHeader(std::shared_ptr<Widget> header) {
 float SidebarView::rowHeight(const SidebarItem& item) const {
     // An untitled header is just a gap between groups (System Settings style).
     if (item.isHeader) return item.title.empty() ? 12.0f : 24.0f;
-    return theme().metrics.rowHeight;
+    return theme().metrics.rowHeight + (item.subtitle.empty() ? 0.0f : 18.0f);
 }
 
 float SidebarView::listTop() const {
@@ -105,6 +110,11 @@ int SidebarView::rowAt(Point p) const {
         if (rowRect(i).contains(p)) return i;
     }
     return -1;
+}
+
+Rect SidebarView::actionRect(int index) const {
+    const auto row = rowRect(index);
+    return {row.right() - 30, row.center().y - 13, 26, 26};
 }
 
 Size SidebarView::measureContent(Size available) {
@@ -174,7 +184,7 @@ void SidebarView::draw(Painter& p) {
         const bool isSel = i == selected;
         if (!isSel && i == m_hovered) p.fillRoundedRect(row, radius, c.hover);
         const bool onAccent = isSel && accent && key;
-        Color text = onAccent ? c.onAccent : c.label;
+        Color text = onAccent ? c.onAccent : item.enabled ? c.label : c.secondaryLabel;
         float x = row.x + 8;
         if (item.icon != Icon::None) {
             if (item.tile) {
@@ -189,6 +199,19 @@ void SidebarView::draw(Painter& p) {
             x += 28;
         }
         float right = row.right() - 8;
+        if (item.actionIcon != Icon::None || item.busy) {
+            const auto action = actionRect(i);
+            if (item.busy) {
+                const float angle = static_cast<float>(std::fmod(now() * 5.0, 6.2831853));
+                p.drawArc(action.center(), 6, angle, 4.5f, onAccent ? c.onAccent : c.accent, 1.6f);
+                requestAnimationFrame();
+            } else {
+                if (i == m_hovered && m_actionHovered)
+                    p.fillRoundedRect(action, 7, onAccent ? c.onAccent.withAlpha(0.18f) : c.fill);
+                p.drawIcon(item.actionIcon, action.inset(6), onAccent ? c.onAccent : c.secondaryLabel);
+            }
+            right = action.x - 4;
+        }
         if (!item.badge.empty()) {
             Font bf = t.font(TextStyle::Subheadline);
             float bw = p.measureText(item.badge, bf);
@@ -197,15 +220,28 @@ void SidebarView::draw(Painter& p) {
             right -= bw + 6;
         }
         p.pushClip({x, row.y, std::max(0.0f, right - x), row.height});
-        p.drawText(item.title, {x, row.y, right - x, row.height}, font, text);
+        if (item.subtitle.empty()) {
+            p.drawText(item.title, {x, row.y, right - x, row.height}, font, text);
+        } else {
+            p.drawText(item.title, {x, row.y + 5, right - x, 20}, font.withWeight(FontWeight::Medium), text);
+            p.drawText(item.subtitle, {x, row.y + 25, right - x, 16}, t.font(TextStyle::Caption),
+                       onAccent ? c.onAccent.withAlpha(0.8f) : c.secondaryLabel);
+        }
         p.popClip();
     }
     p.popClip();
 }
 
 bool SidebarView::onPointerDown(const PointerEvent& e) {
+    if (e.button != MouseButton::Left) return false;
     m_pressed = rowAt(e.position);
     if (m_pressed < 0) return false;
+    const auto& item = m_items[static_cast<size_t>(m_pressed)];
+    if (item.busy || !item.enabled) return true;
+    if (item.actionIcon != Icon::None && actionRect(m_pressed).contains(e.position)) {
+        m_pressedAction = item.id;
+        return true;
+    }
     // Selection happens on mouse down in macOS source lists.
     setSelection(m_items[static_cast<size_t>(m_pressed)].id, true);
     if (auto* h = host()) h->setFocus(this, false);
@@ -214,16 +250,34 @@ bool SidebarView::onPointerDown(const PointerEvent& e) {
 
 void SidebarView::onPointerMove(const PointerEvent& e) {
     int r = rowAt(e.position);
-    if (r != m_hovered) {
+    const bool action = r >= 0 && actionRect(r).contains(e.position);
+    if (r != m_hovered || action != m_actionHovered) {
         m_hovered = r;
+        m_actionHovered = action;
+        if (r >= 0) {
+            const auto& item = m_items[static_cast<size_t>(r)];
+            setTooltip(action && item.actionIcon != Icon::None ? "安全弹出“" + item.title + "”" :
+                       item.subtitle.empty() ? std::string() : item.title + " · " + item.subtitle);
+        } else setTooltip({});
         invalidate();
     }
 }
 
-void SidebarView::onPointerUp(const PointerEvent& /*e*/) { m_pressed = -1; }
+void SidebarView::onPointerUp(const PointerEvent& e) {
+    const auto pressed = std::move(m_pressedAction);
+    m_pressedAction.clear();
+    m_pressed = -1;
+    const int row = rowAt(e.position);
+    if (!pressed.empty() && row >= 0 && actionRect(row).contains(e.position)) {
+        const auto& item = m_items[static_cast<size_t>(row)];
+        if (item.id == pressed && !item.busy && item.actionIcon != Icon::None && m_onAction) m_onAction(pressed);
+    }
+}
 
 void SidebarView::onPointerLeave() {
     m_hovered = -1;
+    m_actionHovered = false;
+    setTooltip({});
     invalidate();
 }
 
@@ -243,7 +297,8 @@ void SidebarView::moveSelection(int delta) {
         if (!m_items[static_cast<size_t>(i)].isHeader && m_items[static_cast<size_t>(i)].id == m_selection) cur = i;
     }
     for (int i = cur + delta; i >= 0 && i < static_cast<int>(m_items.size()); i += delta) {
-        if (!m_items[static_cast<size_t>(i)].isHeader) {
+        if (!m_items[static_cast<size_t>(i)].isHeader && m_items[static_cast<size_t>(i)].enabled &&
+            !m_items[static_cast<size_t>(i)].busy) {
             setSelection(m_items[static_cast<size_t>(i)].id, true);
             // Keep the selection visible.
             Rect r = rowRect(i);

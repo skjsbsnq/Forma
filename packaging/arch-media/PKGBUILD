@@ -13,14 +13,14 @@ source=()
 sha256sums=()
 
 build() {
-  cmake -S "$startdir/../.." -B "$srcdir/build" \
+  cmake -S "$startdir/../.." -B "${FORMA_BUILD_DIR:-$srcdir/build}" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
     -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
-  cmake --build "$srcdir/build" --target photos video_player -j"$(nproc)"
+  cmake --build "${FORMA_BUILD_DIR:-$srcdir/build}" --target photos video_player -j"$(nproc)"
 }
 
 _install_app() {
-  DESTDIR="$pkgdir" cmake --install "$srcdir/build" --component "$1"
+  DESTDIR="$pkgdir" cmake --install "${FORMA_BUILD_DIR:-$srcdir/build}" --component "$1"
   install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
   install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
 }

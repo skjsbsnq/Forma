@@ -1,0 +1,14 @@
+/home/wwt/文档/Forma/packaging/arch-texteditor/forma-texteditor-0.1.0-1-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-finder/forma-finder-0.1.0-18-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-suite/forma-settings-0.1.0-4-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-suite/forma-terminal-0.1.0-4-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-media/forma-photos-0.1.0-1-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-media/forma-video-0.1.0-1-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-extras/forma-calculator-0.1.0-1-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-extras/forma-music-0.1.0-1-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-mail/forma-mail-0.2.0rc1-1-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-taskmanager/forma-taskmanager-0.1.0-3-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-appstore/forma-appstore-0.1.0-3-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-screenshot/forma-screenshot-0.1.0-3-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/polkit-agent/forma-polkit-agent-0.1.0-3-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-portal/xdg-desktop-portal-forma-6.8.0-1-x86_64.pkg.tar.zst

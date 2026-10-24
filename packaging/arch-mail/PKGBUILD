@@ -14,7 +14,7 @@ source=()
 sha256sums=()
 
 build() {
-  local mail_build_dir="${FORMA_MAIL_BUILD_DIR:-$srcdir/build}"
+  local mail_build_dir="${FORMA_BUILD_DIR:-$srcdir/build}"
   cmake -S "$startdir/../.." -B "$mail_build_dir" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
     -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
@@ -22,7 +22,7 @@ build() {
 }
 
 package() {
-  local mail_build_dir="${FORMA_MAIL_BUILD_DIR:-$srcdir/build}"
+  local mail_build_dir="${FORMA_BUILD_DIR:-$srcdir/build}"
   DESTDIR="$pkgdir" cmake --install "$mail_build_dir" --component forma-mail
   install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
   install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"

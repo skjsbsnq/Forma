@@ -16,14 +16,14 @@ source=()
 sha256sums=()
 
 build() {
-  cmake -S "$startdir/../.." -B "$srcdir/build" \
+  cmake -S "$startdir/../.." -B "${FORMA_BUILD_DIR:-$srcdir/build}" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
     -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
-  cmake --build "$srcdir/build" --target taskmanager -j"$(nproc)"
+  cmake --build "${FORMA_BUILD_DIR:-$srcdir/build}" --target taskmanager -j"$(nproc)"
 }
 
 package() {
-  DESTDIR="$pkgdir" cmake --install "$srcdir/build" --component taskmanager
+  DESTDIR="$pkgdir" cmake --install "${FORMA_BUILD_DIR:-$srcdir/build}" --component taskmanager
   install -Dm644 "$startdir/../../applications/task_manager/data/io.github.egely1337.Mayonnaise.TaskManager.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/forma-taskmanager.svg"
   install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
   install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"

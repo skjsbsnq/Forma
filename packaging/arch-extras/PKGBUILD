@@ -1,0 +1,45 @@
+# Local Forma source build: the two apps upstream has no Arch recipe for
+# (calculator replaces kcalc, music replaces elisa/other KDE audio players).
+pkgbase=forma-extras
+pkgname=(forma-calculator forma-music)
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Forma Calculator and Music Player with Simplified Chinese interfaces'
+arch=(x86_64)
+url='https://github.com/skjsbsnq/Forma'
+license=(GPL-3.0-only OFL-1.1)
+makedepends=(cmake pkgconf sdl3 freetype2 glib2 vulkan-headers shaderc ffmpeg)
+options=(!debug)
+source=()
+sha256sums=()
+
+build() {
+  cmake -S "$startdir/../.." -B "${FORMA_BUILD_DIR:-$srcdir/build}" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
+  cmake --build "${FORMA_BUILD_DIR:-$srcdir/build}" --target calculator music -j"$(nproc)"
+}
+
+_install_app() {
+  DESTDIR="$pkgdir" cmake --install "${FORMA_BUILD_DIR:-$srcdir/build}" --component "$1"
+  install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
+}
+
+package_forma-calculator() {
+  pkgdesc='Forma Calculator with Simplified Chinese interface'
+  depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme)
+  optdepends=('vulkan-icd-loader: Vulkan rendering' 'noto-fonts-cjk: Chinese text rendering')
+  provides=(mayo-calculator-git)
+  conflicts=(mayo-calculator-git)
+  _install_app calculator
+}
+
+package_forma-music() {
+  pkgdesc='Forma Music Player with Simplified Chinese interface and MPRIS support'
+  depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme ffmpeg glib2)
+  optdepends=('vulkan-icd-loader: Vulkan rendering' 'noto-fonts-cjk: Chinese text rendering')
+  provides=(mayo-music-git)
+  conflicts=(mayo-music-git)
+  _install_app music
+}

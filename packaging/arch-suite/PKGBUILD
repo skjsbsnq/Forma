@@ -13,14 +13,14 @@ source=()
 sha256sums=()
 
 build() {
-  cmake -S "$startdir/../.." -B "$srcdir/build" \
+  cmake -S "$startdir/../.." -B "${FORMA_BUILD_DIR:-$srcdir/build}" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
     -DMAYONNAISE_USE_SYSTEM_DEPS=ON -DMAYONNAISE_BUILD_TESTS=OFF
-  cmake --build "$srcdir/build" --target terminal systemsettings -j"$(nproc)"
+  cmake --build "${FORMA_BUILD_DIR:-$srcdir/build}" --target terminal systemsettings -j"$(nproc)"
 }
 
 _install_app() {
-  DESTDIR="$pkgdir" cmake --install "$srcdir/build" --component "$1"
+  DESTDIR="$pkgdir" cmake --install "${FORMA_BUILD_DIR:-$srcdir/build}" --component "$1"
   install -Dm644 "$startdir/../../applications/$2/data/$3.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/$4.svg"
   install -Dm644 "$startdir/../../LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
   install -Dm644 "$startdir/../../assets/fonts/Inter-LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/Inter-LICENSE.txt"
@@ -44,6 +44,8 @@ package_forma-settings() {
     'bluez: Bluetooth' 'libpulse: sound controls (pactl)'
     'upower: battery information' 'power-profiles-daemon: power modes'
     'accountsservice: user accounts' 'xdg-utils: open external settings')
+  # 与 KDE 的 systemsettings 共存：Forma 系统设置只是额外的设置入口，
+  # 不做 provides/conflicts，plasma-desktop / kinfocenter 继续用原包。
   provides=(mayo-system-settings-git)
   conflicts=(mayo-system-settings-git)
   _install_app systemsettings system_settings io.github.egely1337.Mayonnaise.Settings forma-settings

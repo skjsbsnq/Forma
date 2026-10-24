@@ -17,7 +17,7 @@ source=()
 sha256sums=()
 
 build() {
-  local editor_build_dir="${FORMA_TEXTEDITOR_BUILD_DIR:-$srcdir/build}"
+  local editor_build_dir="${FORMA_BUILD_DIR:-$srcdir/build}"
   cmake -S "$startdir/../.." -B "$editor_build_dir" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
     -DMAYONNAISE_BUILD_APPS=ON -DMAYONNAISE_USE_SYSTEM_DEPS=ON \
@@ -26,7 +26,7 @@ build() {
 }
 
 package() {
-  local editor_build_dir="${FORMA_TEXTEDITOR_BUILD_DIR:-$srcdir/build}"
+  local editor_build_dir="${FORMA_BUILD_DIR:-$srcdir/build}"
   DESTDIR="$pkgdir" cmake --install "$editor_build_dir" --component texteditor
   install -Dm644 "$startdir/../../applications/text_editor/data/io.github.egely1337.Mayonnaise.TextEditor.svg" \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/forma-texteditor.svg"
