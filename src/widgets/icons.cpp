@@ -391,6 +391,13 @@ void Painter::drawIcon(Icon icon, const Rect& r, const Color& color, float weigh
             pen.line(2.5f, 10.8f, 17.5f, 10.8f);
             pen.dot(14.6f, 12.7f, 0.9f);
             break;
+        case Icon::UsbDrive:
+            pen.rrect(6.5f, 2, 7, 5, 0.6f);
+            pen.line(8.5f, 3.5f, 8.5f, 5);
+            pen.line(11.5f, 3.5f, 11.5f, 5);
+            pen.rrect(5, 7, 10, 11, 2);
+            pen.line(8.5f, 14.5f, 11.5f, 14.5f);
+            break;
         case Icon::Eject:
             pen.poly({{10, 4}, {16, 11}, {4, 11}}, true);
             pen.line(4, 15, 16, 15);

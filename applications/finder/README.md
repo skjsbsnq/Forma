@@ -3,6 +3,7 @@
 Finder 通过系统总线连接 UDisks2，后台每 2 秒刷新设备列表。它使用 UDisks 的设备属性识别 USB / 可移动介质，不再仅靠 `/media` 路径猜测设备类型。原有 `/mnt` 等挂载目录仍作为位置显示。
 
 - 插入 U 盘：在「外接设备」中显示名称、容量和挂载状态；点击未挂载设备会挂载并打开，已挂载设备直接打开。
+- 没有设备时隐藏整个分组，不显示「尚未连接设备」占位行。连接时使用与收藏栏一致的蓝色线条图标，不再使用绿色底块；磁盘服务错误显示在底部状态栏。
 - 安全弹出：点击侧栏右侧弹出图标，或在设备目录中点击工具栏「弹出」/按 `Ctrl+E`。窄窗口工具栏折叠时，也可从操作菜单使用「安全弹出」。
 - 先正常卸载同一物理设备及共享 `SiblingId` 的逻辑设备上的全部已挂载文件系统，再调用 `Drive.PowerOff`；不支持断电时使用 `Drive.Eject`，两者均不支持时仅卸载并提示可以拔出。隐藏分区也参与卸载检查，包含系统分区的设备拒绝弹出。
 - 文件复制/移动期间禁止弹出。其他程序占用导致卸载失败时保留错误提示并停止后续操作，不发送强制卸载选项。多分区设备可能已有部分分区卸载成功，列表会按实际状态刷新。
@@ -33,5 +34,6 @@ MAYO_DEMO=devices MAYO_APPEARANCE=light MAYO_SCALE=1 \
 
 ![浅色设备侧栏](../../docs/screenshots/forma-finder-volumes-light.png)
 ![深色窄窗口](../../docs/screenshots/forma-finder-volumes-dark.png)
+![未连接设备时隐藏整个分组](../../docs/screenshots/forma-finder-no-volumes-light.png)
 
 接口参考：[Filesystem.Mount / Unmount](https://storaged.org/doc/udisks2-api/latest/gdbus-org.freedesktop.UDisks2.Filesystem.html)、[Drive.PowerOff / Eject](https://storaged.org/doc/udisks2-api/latest/gdbus-org.freedesktop.UDisks2.Drive.html)。

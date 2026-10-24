@@ -306,7 +306,7 @@ int main(int argc, char** argv) {
         statusLabel.setText(text);
         const bool busy = ops.busy() || diskBusy;
         opSpinner.setHidden(!busy);
-        opLabel.setText(diskBusy || !diskStatus.empty() ? diskStatus : ops.busy() ? ops.status() : std::string());
+        opLabel.setText(diskBusy || !diskStatus.empty() ? diskStatus : ops.busy() ? ops.status() : diskServiceError);
         const auto* device = deviceForPath(b.path);
         ejectButton.setHidden(!device || !device->canRemove());
         ejectButton.setDisabled(diskBusy || ops.busy());
@@ -1224,15 +1224,13 @@ int main(int argc, char** argv) {
                 items.emplace_back(v.mountPoint, Icon::HardDrive, v.name);
         }
         items.emplace_back(trashFilesDirectory(), Icon::Trash, "回收站");
-        items.push_back(SidebarItem::header("外接设备"));
         const DeviceVolume* active = nullptr;
         for (const auto& v : devices) if (v.id == activeDevice) active = &v;
         size_t count = 0;
         for (const auto& v : devices) {
             if (!v.visible()) continue;
-            ++count;
-            SidebarItem item(v.id, Icon::HardDrive, v.name);
-            item.tile = v.external ? theme().colors.green : theme().colors.accent;
+            if (count++ == 0) items.push_back(SidebarItem::header("外接设备"));
+            SidebarItem item(v.id, v.external ? Icon::UsbDrive : Icon::HardDrive, v.name);
             item.busy = diskBusy && active && sameDevice(*active, v);
             const std::string capacity = v.size ? formatSize(v.size) + " · " : "";
             item.subtitle = item.busy ? (diskStatus.find("挂载") != std::string::npos ? "正在挂载…" : "正在弹出…") : capacity + (v.mountPoint.empty() ? "未挂载" :
@@ -1240,12 +1238,6 @@ int main(int argc, char** argv) {
             item.enabled = !diskBusy;
             if (v.canRemove()) item.actionIcon = Icon::Eject;
             items.push_back(std::move(item));
-        }
-        if (!count || !diskServiceError.empty()) {
-            SidebarItem hint("devices:empty", Icon::HardDrive, diskServiceError.empty() ? "尚未连接设备" : "磁盘服务不可用");
-            hint.subtitle = diskServiceError.empty() ? "插入 U 盘后在这里打开" : "请安装或启动 UDisks2";
-            hint.enabled = false;
-            items.push_back(std::move(hint));
         }
         sidebar.setItems(std::move(items));
         updateChrome();

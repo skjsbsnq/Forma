@@ -1,7 +1,7 @@
 # Build the current local Forma source, including uncommitted changes.
 pkgname=forma-finder
 pkgver=0.1.0
-pkgrel=19
+pkgrel=20
 pkgdesc='Forma Finder file manager with a custom Forma icon'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'
