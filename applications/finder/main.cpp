@@ -24,6 +24,7 @@
 #include "browser.hpp"
 #include "file_icons.hpp"
 #include "applications.hpp"
+#include "archives.hpp"
 #include "file_model.hpp"
 #include "file_ops.hpp"
 #include "file_panels.hpp"
@@ -1154,6 +1155,21 @@ int main(int argc, char** argv) {
         items.push_back(MenuItem("打开", openSelection).withShortcut("Ctrl+O").disabled(trashed && !(first && first->isDir)));
         auto openWith = openWithItems();
         if (!openWith.empty()) items.push_back(MenuItem("打开方式").withSubmenu(std::move(openWith)).disabled(trashed));
+        if (canExtractArchives(paths)) {
+            items.push_back(MenuItem::separator());
+            items.push_back(MenuItem("解压到此处", [&, paths] {
+                if (demo) return;
+                if (const auto error = extractArchives(paths); !error.empty()) showAlert("无法解压。", error);
+            }));
+            items.push_back(MenuItem("解压到…", [&, paths] {
+                if (demo) return;
+                app.openFolder([&, paths](std::vector<std::string> folders) {
+                    if (folders.empty()) return;
+                    if (const auto error = extractArchives(paths, folders.front()); !error.empty())
+                        showAlert("无法解压。", error);
+                }, &window);
+            }));
+        }
         if (trashed) items.push_back(MenuItem("放回原处", putBack));
         items.push_back(MenuItem::separator());
         items.push_back(MenuItem(single ? "快速预览“" + fs::path(paths.front()).filename().string() + "”" : "快速预览",

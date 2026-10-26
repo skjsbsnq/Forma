@@ -66,6 +66,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   mayonnaise_set_sanitizers(finder_volume_tests)
   add_test(NAME finder_volume_tests COMMAND finder_volume_tests)
   add_executable(finder_open_tests test_finder_open.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/archives.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/applications.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/file_model.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/file_panels.cpp

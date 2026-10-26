@@ -1,14 +1,14 @@
 # Build the current local Forma source, including uncommitted changes.
 pkgname=forma-finder
 pkgver=0.1.0
-pkgrel=20
+pkgrel=21
 pkgdesc='Forma Finder file manager with a custom Forma icon'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'
 license=(GPL-3.0-only OFL-1.1 MIT)
 depends=(glibc gcc-libs sdl3 freetype2 fontconfig dbus hicolor-icon-theme xdg-utils glib2 udisks2)
 makedepends=(cmake pkgconf vulkan-headers shaderc)
-optdepends=('vulkan-icd-loader: Vulkan rendering' 'zenity: fallback file dialogs')
+optdepends=('vulkan-icd-loader: Vulkan rendering' 'zenity: fallback file dialogs' 'ark: archive extraction from the context menu')
 provides=(mayo-finder-git)
 conflicts=(mayo-finder-git)
 options=(!debug)

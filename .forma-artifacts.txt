@@ -1,5 +1,5 @@
 /home/wwt/文档/Forma/packaging/arch-texteditor/forma-texteditor-0.1.0-1-x86_64.pkg.tar.zst
-/home/wwt/文档/Forma/packaging/arch-finder/forma-finder-0.1.0-20-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/packaging/arch-finder/forma-finder-0.1.0-21-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/packaging/arch-suite/forma-settings-0.1.0-4-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/packaging/arch-suite/forma-terminal-0.1.0-4-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/packaging/arch-media/forma-photos-0.1.0-1-x86_64.pkg.tar.zst

@@ -1,4 +1,5 @@
 #include "applications.hpp"
+#include "archives.hpp"
 #include "file_model.hpp"
 #include "file_panels.hpp"
 #include "test_support.hpp"
@@ -139,5 +140,53 @@ int main(int argc, char**) {
     require(lines.front() == "xdg " + folderStr, "the next terminal on PATH is used, in the folder");
     fs::remove(root / "xdg-terminal-exec");
     require(!finder::openTerminal(folderStr).empty(), "no terminal at all says why");
+
+    // Extraction uses Ark's batch API, preserving names and rejecting mixed selections before launching.
+    const auto zip = (root / "中文 空格 ' $() ;.zip").string();
+    const auto rar = (root / "sample.rar").string();
+    std::ofstream(zip) << "PK\x03\x04";
+    std::ofstream(rar) << "Rar!\x1a\x07";
+    fs::create_directory(root / "folder.zip");
+    require(finder::canExtractArchives({zip, rar}), "zip and rar selection offers extraction");
+    require(!finder::canExtractArchives({}), "empty selection has no extraction menu");
+    require(!finder::canExtractArchives({zip, text}), "mixed selection has no extraction menu");
+    require(!finder::canExtractArchives({(root / "folder.zip").string()}), "archive-named folder is not an archive");
+    require(!finder::canExtractArchives({(root / "missing.zip").string()}), "missing archive is rejected");
+    fs::create_directories(root / "Trash/files");
+    const auto trashed = (root / "Trash/files/deleted.zip").string();
+    std::ofstream(trashed) << "PK\x03\x04";
+    require(!finder::canExtractArchives({trashed}), "trash has no extraction menu");
+    const auto arkLog = root / "ark.log";
+    const auto ark = root / "ark";
+    std::ofstream(ark) << "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" << arkLog.string() << "'\n";
+    ::chmod(ark.c_str(), 0755);
+    auto arkArgs = [&](size_t count) {
+        std::vector<std::string> args;
+        for (int i = 0; i < 100; ++i) {
+            args.clear();
+            std::ifstream in(arkLog);
+            for (std::string line; std::getline(in, line);) args.push_back(line);
+            if (args.size() >= count) break;
+            ::usleep(20000);
+        }
+        return args;
+    };
+    require(finder::extractArchives({zip}).empty(), "extract here launches Ark");
+    require(arkArgs(5) == std::vector<std::string>{"--batch", "--destination", root.string(), "--", zip},
+            "extract here uses the archive parent and preserves shell characters literally");
+    fs::remove(arkLog);
+    require(finder::extractArchives({zip, rar}, folderStr).empty(), "multiple archives extract to chosen folder");
+    require(arkArgs(6) == std::vector<std::string>{"--batch", "--destination", folderStr, "--", zip, rar},
+            "extract to uses the selected destination and all archives");
+    fs::remove(arkLog);
+    const auto nested = (folder / "--another.rar").string();
+    fs::copy_file(rar, nested);
+    require(finder::extractArchives({nested}).empty(), "extract here works outside the current folder");
+    require(arkArgs(5) == std::vector<std::string>{"--batch", "--destination", folderStr, "--", nested},
+            "extract here derives destination from the selected archive, not the view");
+    require(!finder::extractArchives({zip}, text).empty(), "non-directory destination is rejected");
+    require(!finder::extractArchives({text}).empty(), "ordinary file cannot launch extraction");
+    fs::remove(ark);
+    require(!finder::extractArchives({zip}).empty(), "missing Ark produces a visible error");
     fs::remove_all(root);
 }
