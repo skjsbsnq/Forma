@@ -1,13 +1,13 @@
 # Forma 截图：Arch Linux 独立应用
 
-此配方只构建 Forma 框架和截图应用，产物为 `forma-screenshot-0.1.0-3-x86_64.pkg.tar.zst`。Forma 静态编译进应用，字体与渲染着色器内嵌；安装后不需要本仓库、不需要独立安装 Forma 框架，也不依赖其他 Forma 应用或 Spectacle。
+此配方只构建 Forma 框架和截图应用，产物为 `forma-screenshot-0.1.0-4-x86_64.pkg.tar.zst`。Forma 静态编译进应用，字体与渲染着色器内嵌；安装后不需要本仓库、不需要独立安装 Forma 框架，也不依赖其他 Forma 应用或 Spectacle。
 
 目标环境为 Arch Linux x86_64、KDE Plasma Wayland。运行依赖由 pacman 管理；复制需要 wl-clipboard，快捷键设置依赖 Python GObject 与 KDE 服务。可选 libnotify 提供完成通知。
 
 ## 安装
 
 ```sh
-sudo pacman -U ./forma-screenshot-0.1.0-3-x86_64.pkg.tar.zst
+sudo pacman -U ./forma-screenshot-0.1.0-4-x86_64.pkg.tar.zst
 forma-screenshot-setup
 ```
 

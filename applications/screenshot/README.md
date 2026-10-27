@@ -4,10 +4,10 @@
 
 ## Arch Linux 独立安装包
 
-安装 `forma-screenshot-0.1.0-3-x86_64.pkg.tar.zst` 后，应用可直接运行，Forma 框架、字体和着色器已内置，无需保留源码目录：
+安装 `forma-screenshot-0.1.0-4-x86_64.pkg.tar.zst` 后，应用可直接运行，Forma 框架、字体和着色器已内置，无需保留源码目录：
 
 ```sh
-sudo pacman -U ./forma-screenshot-0.1.0-3-x86_64.pkg.tar.zst
+sudo pacman -U ./forma-screenshot-0.1.0-4-x86_64.pkg.tar.zst
 forma-screenshot-setup
 ```
 

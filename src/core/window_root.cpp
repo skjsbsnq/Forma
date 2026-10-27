@@ -237,7 +237,7 @@ float WindowRootView::windowRadius() const {
     return m_transparent && !m_maximized ? (m_radius >= 0 ? m_radius : theme().metrics.windowRadius) : 0.0f;
 }
 
-float WindowRootView::titleBarHeight() const { return m_dialog ? 0.0f : m_titleBar->height(); }
+float WindowRootView::titleBarHeight() const { return (m_dialog || m_fullscreen) ? 0.0f : m_titleBar->height(); }
 
 Size WindowRootView::measureContent(Size available) { return available; }
 

@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <iostream>
 #include <mayonnaise/mayonnaise.hpp>
+#include <optional>
 #include <sstream>
 #include <thread>
 #include "capture_view.hpp"
@@ -62,6 +63,14 @@ public:
         if (m_capture.joinable()) m_capture.join();
         if (m_output.joinable()) m_output.join();
     }
+    void request(shot::Mode mode, std::string token) {
+        if (m_finishing || m_capturing) {
+            m_pending = Pending{mode, std::move(token)};
+            return;
+        }
+        m_app.setActivationToken(token);
+        activate(mode, false, !token.empty());
+    }
     void activate(shot::Mode mode, bool force = false, bool launcherFocus = false) {
         if (m_finishing || m_capturing) return;
         if (!force && m_window->isVisible()) {
@@ -95,6 +104,8 @@ public:
                     m_capturing = false;
                     m_view->present(std::move(image), mode);
                     m_window->show();
+                    m_window->raise();
+                    runPending();
                     if (const char* demo = std::getenv("MAYO_DEMO"); demo && std::string(demo) == "selection")
                         m_app.after(.10, [this, generation] {
                             if (generation == m_generation) m_view->demoSelection();
@@ -110,6 +121,7 @@ public:
                 m_app.post([this, generation] {
                     if (generation == m_generation) {
                         m_capturing = false;
+                        runPending();
                         if (!m_resident) m_app.quit();
                     }
                 });
@@ -119,6 +131,7 @@ public:
                     if (generation != m_generation) return;
                     m_capturing = false;
                     std::cerr << "Forma 截图：" << message << '\n';
+                    runPending();
                     if (!m_resident) m_app.quit(1);
                 });
             }
@@ -138,11 +151,22 @@ public:
         m_app.after(.12, [this] {
             m_window->hide();
             m_finishing = false;
+            runPending();
             if (!m_resident) m_app.quit();
         });
     }
 
 private:
+    struct Pending {
+        shot::Mode mode;
+        std::string token;
+    };
+    void runPending() {
+        if (!m_pending || m_finishing || m_capturing) return;
+        auto pending = std::move(*m_pending);
+        m_pending.reset();
+        request(pending.mode, std::move(pending.token));
+    }
     void output(bool copy, bool both) {
         if (m_finishing || !m_view->hasSelection()) return;
         m_finishing = true;
@@ -167,6 +191,7 @@ private:
                         if (generation != m_generation) return;
                         m_window->hide();
                         m_finishing = false;
+                        runPending();
                         if (!m_resident) m_app.quit();
                     });
                 });
@@ -178,6 +203,7 @@ private:
                     m_view->resume();
                     m_view->setMessage("操作未完成：" + message);
                     m_window->show();
+                    runPending();
                 });
             }
         });
@@ -189,6 +215,7 @@ private:
     Window* m_window = nullptr;
     std::shared_ptr<shot::CaptureView> m_view;
     std::jthread m_capture, m_output;
+    std::optional<Pending> m_pending;
 };
 }  // namespace
 int main(int argc, char** argv) {
@@ -261,8 +288,7 @@ int main(int argc, char** argv) {
                     if (r.quit)
                         app.quit();
                     else if (!r.background) {
-                        app.setActivationToken(r.activationToken);
-                        controller.activate(static_cast<shot::Mode>(r.mode), false, !r.activationToken.empty());
+                        controller.request(static_cast<shot::Mode>(r.mode), r.activationToken);
                     }
                 });
             });

@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "test_support.hpp"
+#include "core/window_root.hpp"
 
 using namespace mayo;
 using test::Box;
@@ -10,6 +11,25 @@ std::shared_ptr<Box> box(float w, float h, bool eh = false, bool ev = false) {
     return std::make_shared<Box>(Size{w, h}, eh, ev);
 }
 }  // namespace
+
+TEST_CASE("Fullscreen window content occupies the hidden title bar") {
+    WindowRootView root;
+    auto content = box(100, 100);
+    root.setContent(content);
+    root.setWindowState(false, true, false, false);
+    root.measure({800, 600});
+    root.arrange({0, 0, 800, 600});
+    CHECK(content->frame().y == 32);
+    root.setWindowState(false, true, false, true);
+    root.measure({800, 600});
+    root.arrange({0, 0, 800, 600});
+    CHECK(root.titleBarHeight() == 0);
+    CHECK(content->frame() == Rect{0, 0, 800, 600});
+    root.setWindowState(false, true, false, false);
+    root.measure({800, 600});
+    root.arrange({0, 0, 800, 600});
+    CHECK(content->frame().y == 32);
+}
 
 TEST_CASE("VStack stacks children with spacing and leading alignment") {
     auto a = box(100, 20);
