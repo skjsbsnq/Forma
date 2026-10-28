@@ -13,7 +13,7 @@ struct ImageData::Impl {
     render::DecodedImage pixels;
     int originalW = 0;
     int originalH = 0;
-    bool retain = false;  // static images drop their CPU copy once uploaded
+    bool retain = false;   // static images drop their CPU copy once uploaded
     bool dynamic = false;  // updated every frame: no mipmaps, sub-image uploads
     bool dirty = false;
 
@@ -30,12 +30,12 @@ struct ImageData::Impl {
     rhi::Texture* gpuTexture() {
         rhi::Device* device = rhi::device();
         if (!device) return nullptr;
-        if (texture && dirty && !pixels.pixels.empty()) {
-            device->upload(*texture, 0, 0, pixels.width, pixels.height, pixels.pixels.data());
+        if (texture && dirty && !pixels.pixels().empty()) {
+            device->upload(*texture, 0, 0, pixels.width, pixels.height, pixels.pixels().data());
             dirty = false;
             return texture.get();
         }
-        if (texture || pixels.pixels.empty()) return texture.get();
+        if (texture || pixels.pixels().empty()) return texture.get();
         dirty = false;
         // Clamp to what the GPU can sample (rare: > 16k photos).
         const int maxSize = device->maxTextureSize();
@@ -45,10 +45,9 @@ struct ImageData::Impl {
                               static_cast<int>(static_cast<float>(pixels.height) * k));
         }
         texture = device->createTexture({.width = pixels.width, .height = pixels.height, .mipmaps = !dynamic});
-        device->upload(*texture, 0, 0, pixels.width, pixels.height, pixels.pixels.data());
+        device->upload(*texture, 0, 0, pixels.width, pixels.height, pixels.pixels().data());
         if (!retain) {
-            pixels.pixels.clear();
-            pixels.pixels.shrink_to_fit();
+            pixels.clearPixels();
         }
         return texture.get();
     }
@@ -73,8 +72,9 @@ std::shared_ptr<ImageData> ImageData::create(int width, int height) {
     auto& d = img->m_impl->pixels;
     d.width = width;
     d.height = height;
-    d.pixels.assign(static_cast<size_t>(width) * height * 4, 0);
-    for (size_t i = 3; i < d.pixels.size(); i += 4) d.pixels[i] = 255;
+    d.setPixels(std::vector<std::uint8_t>(static_cast<size_t>(width) * height * 4, 0));
+    auto pixels = d.pixels();
+    for (size_t i = 3; i < pixels.size(); i += 4) pixels[i] = 255;
     img->m_impl->dynamic = true;
     img->m_impl->retain = true;
     img->m_impl->fit(0);
@@ -90,14 +90,14 @@ void ImageData::update(std::vector<std::uint8_t> rgba, bool premultiplied) {
             for (size_t c = 0; c < 3; ++c) rgba[i + c] = static_cast<std::uint8_t>((rgba[i + c] * a + 127) / 255);
         }
     }
-    d.pixels = std::move(rgba);
+    d.setPixels(std::move(rgba));
     m_impl->dynamic = true;
     m_impl->retain = true;
     m_impl->dirty = true;
 }
 
 std::shared_ptr<ImageData> ImageData::scaledToFit(int maxDimension) const {
-    if (m_impl->pixels.pixels.empty()) return nullptr;
+    if (m_impl->pixels.pixels().empty()) return nullptr;
     std::shared_ptr<ImageData> img(new ImageData());
     img->m_impl->pixels = m_impl->pixels;
     img->m_impl->fit(maxDimension);
@@ -123,10 +123,11 @@ std::shared_ptr<ImageData> ImageData::fromPixels(int width, int height, std::spa
     auto& d = img->m_impl->pixels;
     d.width = width;
     d.height = height;
-    d.pixels.assign(rgba.begin(), rgba.begin() + static_cast<std::ptrdiff_t>(width) * height * 4);
-    for (size_t i = 0; i < d.pixels.size(); i += 4) {
-        unsigned a = d.pixels[i + 3];
-        for (size_t c = 0; c < 3; ++c) d.pixels[i + c] = static_cast<std::uint8_t>((d.pixels[i + c] * a + 127) / 255);
+    d.setPixels({rgba.begin(), rgba.begin() + static_cast<std::ptrdiff_t>(width) * height * 4});
+    auto pixels = d.pixels();
+    for (size_t i = 0; i < pixels.size(); i += 4) {
+        unsigned a = pixels[i + 3];
+        for (size_t c = 0; c < 3; ++c) pixels[i + c] = static_cast<std::uint8_t>((pixels[i + c] * a + 127) / 255);
     }
     img->m_impl->fit(0);
     return img;

@@ -1,7 +1,7 @@
 # Builds the current local Forma source, including uncommitted changes.
 pkgname=forma-mail
 pkgver=0.2.0rc1
-pkgrel=1
+pkgrel=2
 pkgdesc='Forma Mail: native Chinese IMAP/SMTP email client'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'

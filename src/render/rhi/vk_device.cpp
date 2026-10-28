@@ -346,6 +346,41 @@ void VulkanDevice::collect(Slot& slot) {
     slot.garbage.clear();
 }
 
+void VulkanDevice::trimChunks(Slot& slot, bool idle) {
+    // Reuse up to two chunks during active rendering, including large video upload buffers. Once idle,
+    // retain only small chunks so a one-off photo upload cannot pin hundreds of MB indefinitely.
+    size_t kept = 0;
+    std::erase_if(slot.chunks, [&](const Chunk& c) {
+        if ((!idle || c.size <= kChunkBytes) && kept < 2) {
+            ++kept;
+            return false;
+        }
+        vkDestroyBuffer(m_device, c.buffer, nullptr);
+        Allocation allocation = c.allocation;
+        m_allocator.free(allocation);
+        return true;
+    });
+}
+
+bool VulkanDevice::trimIdleResources() {
+    bool complete = true;
+    for (size_t i = 0; i < m_slots.size(); ++i) {
+        Slot& slot = m_slots[i];
+        // Unsubmitted commands still reference their buffers, even if the previous fence is signalled.
+        // They need new rendering work to complete, so leave them for the next submission instead of polling.
+        if (m_recording && i == m_slot) {
+            continue;
+        }
+        if (slot.submitted && vkWaitForFences(m_device, 1, &slot.fence, VK_TRUE, 0) != VK_SUCCESS) {
+            complete = false;
+            continue;
+        }
+        collect(slot);
+        trimChunks(slot, true);
+    }
+    return complete;
+}
+
 void VulkanDevice::startSlot() {
     Slot& slot = m_slots[m_slot];
     if (slot.submitted) {
@@ -357,12 +392,7 @@ void VulkanDevice::startSlot() {
     for (size_t i = 0; i <= slot.descriptorPool && i < slot.descriptorPools.size(); ++i)
         vkResetDescriptorPool(m_device, slot.descriptorPools[i], 0);
     slot.descriptorPool = 0;
-    // Keep the first two chunks of host memory; extras only came from an unusual burst (a big upload).
-    for (size_t i = 2; i < slot.chunks.size(); ++i) {
-        vkDestroyBuffer(m_device, slot.chunks[i].buffer, nullptr);
-        m_allocator.free(slot.chunks[i].allocation);
-    }
-    if (slot.chunks.size() > 2) slot.chunks.resize(2);
+    trimChunks(slot, false);
     for (Chunk& c : slot.chunks) c.used = 0;
     slot.chunk = 0;
 

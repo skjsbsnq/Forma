@@ -126,6 +126,8 @@ public:
     virtual void endFrame(platform::PlatformWindow& window, Texture& scene) = 0;
     /// Drops what the device keeps for a window (swapchain, surface); call before the window goes away.
     virtual void releaseWindow(platform::PlatformWindow& /*window*/) {}
+    /// Reclaims completed temporary GPU resources without blocking. False requests another idle attempt.
+    virtual bool trimIdleResources() { return true; }
 
     /// Directs the following draws at `target`, cleared first when `clear` (premultiplied RGBA) is given.
     virtual void beginPass(Texture& target, const float* clear = nullptr) = 0;

@@ -2,7 +2,7 @@
 pkgbase=forma-media
 pkgname=(forma-photos forma-video)
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Forma Photos and Video Player with Simplified Chinese interfaces'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'

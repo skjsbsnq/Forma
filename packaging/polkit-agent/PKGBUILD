@@ -1,7 +1,7 @@
 # Build the current local Forma tree; does not enable or switch any agent.
 pkgname=forma-polkit-agent
 pkgver=0.1.0
-pkgrel=3
+pkgrel=4
 pkgdesc='Forma graphical polkit authentication agent with a Tahoe-style dialog'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <vector>
@@ -10,7 +11,27 @@ namespace mayo::render {
 struct DecodedImage {
     int width = 0;
     int height = 0;
-    std::vector<std::uint8_t> pixels;  // RGBA8, premultiplied
+
+    DecodedImage() = default;
+    DecodedImage(const DecodedImage& other);
+    DecodedImage& operator=(const DecodedImage& other);
+    DecodedImage(DecodedImage&&) noexcept = default;
+    DecodedImage& operator=(DecodedImage&&) noexcept = default;
+
+    /// RGBA8, premultiplied. Decoded pixels retain the decoder's allocation until replaced or released.
+    [[nodiscard]] std::span<std::uint8_t> pixels();
+    [[nodiscard]] std::span<const std::uint8_t> pixels() const;
+    void setPixels(std::vector<std::uint8_t> pixels);
+    void clearPixels();
+    /// Takes ownership of an allocation returned by stb_image (dimensions must already be set).
+    void adoptPixels(std::uint8_t* pixels);
+
+private:
+    struct DecoderFree {
+        void operator()(std::uint8_t* pixels) const;
+    };
+    std::unique_ptr<std::uint8_t, DecoderFree> m_decoded;
+    std::vector<std::uint8_t> m_owned;
 };
 
 /// Decodes PNG/JPEG/GIF/BMP/TGA and applies the JPEG EXIF orientation, so photos come out upright.

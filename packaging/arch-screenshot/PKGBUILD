@@ -1,7 +1,7 @@
 # Build the current local Forma source, including uncommitted changes.
 pkgname=forma-screenshot
 pkgver=0.1.0
-pkgrel=4
+pkgrel=5
 pkgdesc='Forma screenshot tool for KDE Wayland with region, screen and window capture'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'

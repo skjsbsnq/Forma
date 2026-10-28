@@ -71,6 +71,7 @@ public:
     void beginFrame(platform::PlatformWindow& window) override;
     void endFrame(platform::PlatformWindow& window, Texture& scene) override;
     void releaseWindow(platform::PlatformWindow& window) override;
+    bool trimIdleResources() override;
 
     void beginPass(Texture& target, const float* clear) override;
     void setScissor(const Scissor* scissor) override;
@@ -134,6 +135,7 @@ private:
     void startSlot();
     void submit(VkSemaphore wait, VkSemaphore signal);
     void collect(Slot& slot);
+    void trimChunks(Slot& slot, bool idle);
     Transient allocTransient(VkDeviceSize size, VkDeviceSize alignment);
 
     void transition(VulkanTexture& texture, VkImageLayout layout);

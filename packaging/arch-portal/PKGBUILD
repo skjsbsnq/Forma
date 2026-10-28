@@ -1,7 +1,7 @@
 # Builds the local Forma checkout, including its uncommitted UI changes.
 pkgname=xdg-desktop-portal-forma
 pkgver=6.8.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Forma desktop portal interfaces with the KDE portal backend'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'

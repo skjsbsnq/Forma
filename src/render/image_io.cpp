@@ -26,17 +26,54 @@
 
 namespace mayo::render {
 
+void DecodedImage::DecoderFree::operator()(std::uint8_t* pixels) const { stbi_image_free(pixels); }
+
+DecodedImage::DecodedImage(const DecodedImage& other) : width(other.width), height(other.height) {
+    const auto bytes = other.pixels();
+    if (!bytes.empty()) m_owned.assign(bytes.begin(), bytes.end());
+}
+
+DecodedImage& DecodedImage::operator=(const DecodedImage& other) {
+    if (this != &other) *this = DecodedImage(other);
+    return *this;
+}
+
+std::span<std::uint8_t> DecodedImage::pixels() {
+    if (m_decoded) return {m_decoded.get(), static_cast<size_t>(width) * height * 4};
+    return m_owned;
+}
+
+std::span<const std::uint8_t> DecodedImage::pixels() const {
+    if (m_decoded) return {m_decoded.get(), static_cast<size_t>(width) * height * 4};
+    return m_owned;
+}
+
+void DecodedImage::setPixels(std::vector<std::uint8_t> pixels) {
+    m_decoded.reset();
+    m_owned = std::move(pixels);
+}
+
+void DecodedImage::clearPixels() {
+    m_decoded.reset();
+    std::vector<std::uint8_t>().swap(m_owned);
+}
+
+void DecodedImage::adoptPixels(std::uint8_t* pixels) {
+    clearPixels();
+    m_decoded.reset(pixels);
+}
+
 namespace {
 bool finish(unsigned char* data, int w, int h, DecodedImage& out) {
     if (!data) return false;
     out.width = w;
     out.height = h;
-    out.pixels.assign(data, data + static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
-    stbi_image_free(data);
+    out.adoptPixels(data);
     // The renderer blends premultiplied colours.
-    for (size_t i = 0; i < out.pixels.size(); i += 4) {
-        unsigned a = out.pixels[i + 3];
-        for (size_t c = 0; c < 3; ++c) out.pixels[i + c] = static_cast<std::uint8_t>((out.pixels[i + c] * a + 127) / 255);
+    auto pixels = out.pixels();
+    for (size_t i = 0; i < pixels.size(); i += 4) {
+        unsigned a = pixels[i + 3];
+        for (size_t c = 0; c < 3; ++c) pixels[i + c] = static_cast<std::uint8_t>((pixels[i + c] * a + 127) / 255);
     }
     return true;
 }
@@ -60,7 +97,8 @@ void applyOrientation(DecodedImage& img, int orientation) {
     const bool swap = orientation >= 5;
     const int ow = swap ? h : w;
     const int oh = swap ? w : h;
-    std::vector<std::uint8_t> out(img.pixels.size());
+    const auto pixels = img.pixels();
+    std::vector<std::uint8_t> out(pixels.size());
     for (int y = 0; y < oh; ++y) {
         for (int x = 0; x < ow; ++x) {
             int sx = 0;
@@ -77,10 +115,10 @@ void applyOrientation(DecodedImage& img, int orientation) {
             }
             const size_t d = (static_cast<size_t>(y) * ow + x) * 4;
             const size_t s = (static_cast<size_t>(sy) * w + sx) * 4;
-            for (int c = 0; c < 4; ++c) out[d + c] = img.pixels[s + c];
+            for (int c = 0; c < 4; ++c) out[d + c] = pixels[s + c];
         }
     }
-    img.pixels = std::move(out);
+    img.setPixels(std::move(out));
     img.width = ow;
     img.height = oh;
 }
@@ -121,6 +159,7 @@ void resizeBox(DecodedImage& img, int tw, int th) {
     if (tw <= 0 || th <= 0 || (tw >= img.width && th >= img.height)) return;
     const int w = img.width;
     const int h = img.height;
+    const auto pixels = img.pixels();
     std::vector<std::uint32_t> acc(static_cast<size_t>(tw) * th * 4, 0);
     std::vector<std::uint32_t> cnt(static_cast<size_t>(tw) * th, 0);
     for (int y = 0; y < h; ++y) {
@@ -129,7 +168,7 @@ void resizeBox(DecodedImage& img, int tw, int th) {
             const int tx = static_cast<int>(static_cast<std::int64_t>(x) * tw / w);
             const size_t d = static_cast<size_t>(ty) * tw + tx;
             const size_t s = (static_cast<size_t>(y) * w + x) * 4;
-            for (int c = 0; c < 4; ++c) acc[d * 4 + c] += img.pixels[s + c];
+            for (int c = 0; c < 4; ++c) acc[d * 4 + c] += pixels[s + c];
             ++cnt[d];
         }
     }
@@ -138,7 +177,7 @@ void resizeBox(DecodedImage& img, int tw, int th) {
         const std::uint32_t n = std::max<std::uint32_t>(1, cnt[d]);
         for (int c = 0; c < 4; ++c) out[d * 4 + c] = static_cast<std::uint8_t>((acc[d * 4 + c] + n / 2) / n);
     }
-    img.pixels = std::move(out);
+    img.setPixels(std::move(out));
     img.width = tw;
     img.height = th;
 }

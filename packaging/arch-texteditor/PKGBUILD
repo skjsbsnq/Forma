@@ -1,7 +1,7 @@
 # Build the current local Forma source, including uncommitted changes.
 pkgname=forma-texteditor
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Forma Text Editor with Simplified Chinese interface and Liquid Glass styling'
 arch=(x86_64)
 url='https://github.com/skjsbsnq/Forma'

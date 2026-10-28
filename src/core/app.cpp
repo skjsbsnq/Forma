@@ -309,10 +309,12 @@ int App::run() {
             while (Platform::pollEvent(event)) m_impl->dispatch(event);
             m_impl->trimPending = true;
         } else if (trimWhenIdle) {
+            // Idle apps may never reuse a frame slot. Reclaim completed uploads here as well, before
+            // handing freed CPU allocations back to the OS; unfinished GPU work is retried next idle tick.
+            m_impl->trimPending = m_impl->device && !m_impl->device->trimIdleResources();
 #ifdef __GLIBC__
             malloc_trim(0);
 #endif
-            m_impl->trimPending = false;
         }
         m_impl->runDueTimers();
         m_impl->renderDueWindows();
