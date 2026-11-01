@@ -1,3 +1,4 @@
+#include <charconv>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -28,17 +29,19 @@ std::string filename(const Options& options) {
 }
 class CaptureController {
 public:
+    std::function<void()> onIdle;
+    bool busy() const { return m_window || m_capturing || m_finishing || m_pending.has_value(); }
     CaptureController(App& app, Options options, bool resident)
         : m_app(app), m_options(std::move(options)), m_resident(resident) {}
     void ensureWindow() {
         if (m_window) return;
         m_view = std::make_shared<shot::CaptureView>();
         m_window = &m_app.createWindow({.title = "Forma 截图",
-                                      .width = 960,
-                                      .height = 640,
-                                      .minWidth = 320,
-                                      .minHeight = 200,
-                                      .initiallyHidden = true});
+                                        .width = 960,
+                                        .height = 640,
+                                        .minWidth = 320,
+                                        .minHeight = 200,
+                                        .initiallyHidden = true});
         m_window->setContent(m_view);
         m_window->setFullscreen(true);
         m_window->onKey([this](const KeyEvent& key) { return m_view && m_view->key(key); });
@@ -171,6 +174,7 @@ private:
         }
         // Discard the original screen pixels and its dynamic CPU/GPU texture once the request ends.
         m_view.reset();
+        if (onIdle) onIdle();
     }
     struct Pending {
         shot::Mode mode;
@@ -235,9 +239,17 @@ private:
 }  // namespace
 int main(int argc, char** argv) {
     Options options;
+    int inheritedSocket = -1, inheritedLock = -1;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--region")
+        if (a == "--resume-session" && i + 2 < argc) {
+            auto parseFd = [](const char* text, int& fd) {
+                const auto end = text + std::char_traits<char>::length(text);
+                const auto result = std::from_chars(text, end, fd);
+                return result.ec == std::errc{} && result.ptr == end && fd >= 3;
+            };
+            if (!parseFd(argv[++i], inheritedSocket) || !parseFd(argv[++i], inheritedLock)) return 2;
+        } else if (a == "--region")
             options.mode = shot::Mode::Region;
         else if (a == "--fullscreen")
             options.mode = shot::Mode::Fullscreen;
@@ -274,12 +286,13 @@ int main(int argc, char** argv) {
         std::cerr << "--background 不能与单次截图或输出选项同时使用。\n";
         return 2;
     }
+    if (inheritedSocket >= 0 && !options.background) return 2;
     bool resident = !options.once && !options.copy && !options.save && options.directory == shot::defaultDirectory() &&
                     !std::getenv("MAYO_SCREENSHOT") && !std::getenv("MAYO_TEST_ACTION");
     const char* activationToken = std::getenv("XDG_ACTIVATION_TOKEN");
     shot::Request request{static_cast<int>(options.mode), options.background, options.quit,
                           activationToken ? activationToken : ""};
-    if ((resident || options.quit) && shot::Session::send(request)) return 0;
+    if (inheritedSocket < 0 && (resident || options.quit) && shot::Session::send(request)) return 0;
     if (options.quit) return 0;
     try {
         if (options.mode != shot::Mode::Region && (options.copy || options.save)) {
@@ -297,23 +310,45 @@ int main(int argc, char** argv) {
         app.setKeepAlive(true);
         CaptureController controller(app, options, resident);
         std::unique_ptr<shot::Session> session;
+        bool quitting = false;
         if (resident) {
-            session = std::make_unique<shot::Session>([&](shot::Request r) {
-                app.post([&, r] {
-                    if (r.quit)
-                        app.quit();
-                    else if (!r.background) {
-                        controller.request(static_cast<shot::Mode>(r.mode), r.activationToken);
-                    }
-                });
-            });
+            session = std::make_unique<shot::Session>(
+                [&](shot::Request r) {
+                    app.post([&, r] {
+                        if (r.quit) {
+                            quitting = true;
+                            app.quit();
+                        } else if (!r.background) {
+                            controller.request(static_cast<shot::Mode>(r.mode), r.activationToken);
+                        }
+                    });
+                },
+                inheritedSocket, inheritedLock);
             if (!session->owns()) {
+                if (inheritedSocket >= 0) throw std::runtime_error("无法恢复截图常驻连接");
                 for (int retry = 0; retry < 20; ++retry) {
                     if (shot::Session::send(request)) return 0;
                     std::this_thread::sleep_for(std::chrono::milliseconds(25));
                 }
                 throw std::runtime_error("无法连接截图常驻进程");
             }
+            controller.onIdle = [&] {
+                app.after(.5, [&] {
+                    if (quitting || controller.busy()) return;
+                    session->pause();
+                    // Drain requests already posted by the receiver before deciding
+                    // to restart; later datagrams remain queued in the inherited FD.
+                    app.post([&] {
+                        if (!quitting && !controller.busy()) {
+                            app.settings().save();
+                            std::cout.flush();
+                            std::cerr.flush();
+                            session->restart();
+                        } else
+                            session->resume();
+                    });
+                });
+            };
         }
         if (!options.background) app.post([&] { controller.activate(options.mode); });
         return app.run();

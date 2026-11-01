@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 namespace shot {
@@ -36,7 +37,26 @@ bool Session::send(Request request) {
     close(fd);
     return sent;
 }
-Session::Session(std::function<void(Request)> receive) : m_path(socketPath()) {
+Session::Session(std::function<void(Request)> receive, int inheritedSocket, int inheritedLock)
+    : m_path(socketPath()), m_receive(std::move(receive)) {
+    if (inheritedSocket >= 0 && inheritedLock >= 0) {
+        sockaddr_un a{};
+        socklen_t length = sizeof(a);
+        struct stat lockStat{}, pathStat{};
+        // Only adopt our own still-locked endpoint; never close arbitrary caller-supplied FDs.
+        if (getsockname(inheritedSocket, reinterpret_cast<sockaddr*>(&a), &length) == 0 && a.sun_family == AF_UNIX &&
+            std::string(a.sun_path, strnlen(a.sun_path, sizeof(a.sun_path))) == m_path &&
+            fstat(inheritedLock, &lockStat) == 0 && stat((m_path + ".lock").c_str(), &pathStat) == 0 &&
+            lockStat.st_dev == pathStat.st_dev && lockStat.st_ino == pathStat.st_ino && lockStat.st_uid == getuid() &&
+            flock(inheritedLock, LOCK_EX | LOCK_NB) == 0) {
+            m_fd = inheritedSocket;
+            m_lock = inheritedLock;
+            fcntl(m_fd, F_SETFD, FD_CLOEXEC);
+            fcntl(m_lock, F_SETFD, FD_CLOEXEC);
+            resume();
+        }
+        return;
+    }
     m_lock = open((m_path + ".lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (m_lock < 0 || flock(m_lock, LOCK_EX | LOCK_NB) != 0) return;
     m_fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
@@ -49,21 +69,42 @@ Session::Session(std::function<void(Request)> receive) : m_path(socketPath()) {
         return;
     }
     chmod(m_path.c_str(), 0600);
-    m_thread = std::jthread([this, receive = std::move(receive)](std::stop_token stop) {
+    resume();
+}
+void Session::pause() {
+    m_thread.request_stop();
+    if (m_thread.joinable()) m_thread.join();
+}
+void Session::resume() {
+    if (m_fd < 0 || m_thread.joinable()) return;
+    m_thread = std::jthread([this](std::stop_token stop) {
         while (!stop.stop_requested()) {
             pollfd p{m_fd, POLLIN, 0};
             if (poll(&p, 1, 100) <= 0) continue;
             char message[4096]{};
             auto n = recv(m_fd, message, sizeof(message), 0);
             if (n < 3 || message[0] != 'F' || message[1] < '0' || message[1] > '2') continue;
-            receive({message[1] - '0', message[2] == 'B', message[2] == 'Q',
-                     std::string(message + 3, static_cast<size_t>(n - 3))});
+            m_receive({message[1] - '0', message[2] == 'B', message[2] == 'Q',
+                       std::string(message + 3, static_cast<size_t>(n - 3))});
         }
     });
 }
+void Session::restart() {
+    // Graphics drivers, font libraries and allocator arenas can retain memory after
+    // their UI objects are destroyed. exec releases all of it without changing PID
+    // or dropping the public socket, its lock, or requests queued during the handoff.
+    const auto socket = std::to_string(m_fd), lock = std::to_string(m_lock);
+    char* args[] = {const_cast<char*>("forma-screenshot"), const_cast<char*>("--background"),
+                    const_cast<char*>("--resume-session"), const_cast<char*>(socket.c_str()),
+                    const_cast<char*>(lock.c_str()),       nullptr};
+    if (fcntl(m_fd, F_SETFD, 0) == 0 && fcntl(m_lock, F_SETFD, 0) == 0) execv("/proc/self/exe", args);
+    std::perror("Forma screenshot: resident restart failed");
+    fcntl(m_fd, F_SETFD, FD_CLOEXEC);
+    fcntl(m_lock, F_SETFD, FD_CLOEXEC);
+    resume();
+}
 Session::~Session() {
-    m_thread.request_stop();
-    if (m_thread.joinable()) m_thread.join();
+    pause();
     if (m_fd >= 0) {
         close(m_fd);
         unlink(m_path.c_str());

@@ -4,10 +4,10 @@
 
 ## Arch Linux 独立安装包
 
-安装 `forma-screenshot-0.1.0-6-x86_64.pkg.tar.zst` 后，应用可直接运行，Forma 框架、字体和着色器已内置，无需保留源码目录：
+安装 `forma-screenshot-0.1.0-7-x86_64.pkg.tar.zst` 后，应用可直接运行，Forma 框架、字体和着色器已内置，无需保留源码目录：
 
 ```sh
-sudo pacman -U ./forma-screenshot-0.1.0-6-x86_64.pkg.tar.zst
+sudo pacman -U ./forma-screenshot-0.1.0-7-x86_64.pkg.tar.zst
 forma-screenshot-setup
 ```
 
@@ -23,7 +23,7 @@ forma-screenshot-setup
 ./tools/install_forma_screenshot.sh
 ```
 
-脚本安装到 `~/.local`，处理 KDE 会话 PATH 缺少用户 bin 目录的问题，将 `Super+Shift+S` 从 Spectacle 迁移到 Forma 并保留备份。同时创建 KDE 登录自启动入口并启动低内存常驻进程。常驻期间只保留事件与私有 Unix socket 服务，按快捷键后才创建窗口和图形资源；取消或成功输出后，释放窗口、原始屏幕像素及 CPU/GPU 纹理。下一次请求重新初始化图形界面，以少量启动开销换取较低待机占用。输出失败时保留当前选区，以便重试。启动器的 Wayland 激活令牌会转发给常驻进程。
+脚本安装到 `~/.local`，处理 KDE 会话 PATH 缺少用户 bin 目录的问题，将 `Super+Shift+S` 从 Spectacle 迁移到 Forma 并保留备份。同时创建 KDE 登录自启动入口并启动低内存常驻进程。常驻期间只保留事件与私有 Unix socket 服务，按快捷键后才创建窗口和图形资源；取消或成功输出后，释放窗口、原始屏幕像素及 CPU/GPU 纹理。截图结束并空闲约半秒后，常驻进程会通过 exec 完整重新初始化，回收图形驱动、字体库及内存分配器保留的资源；进程 PID、私有 socket、单实例锁和未处理请求保持不变。下一次请求重新初始化图形界面，以少量启动开销换取较低待机占用。输出失败时保留当前选区，以便重试。启动器的 Wayland 激活令牌会转发给常驻进程。
 
 ```sh
 ~/.local/bin/forma-screenshot-shortcut --status
@@ -70,4 +70,12 @@ MAYO_DEMO=selection MAYO_APPEARANCE=light \
   build/applications/screenshot/forma-screenshot --once --region
 ```
 
-视觉预览预选画面中部区域，不执行保存截图或复制图片动作。明暗主题可通过 `MAYO_APPEARANCE=light|dark` 预览。本轮优化只做编译、静态审阅和视觉预览，按用户要求不再运行功能测试。
+视觉预览预选画面中部区域，不执行保存截图或复制图片动作。明暗主题可通过 `MAYO_APPEARANCE=light|dark` 预览。内存回归使用合成的 2560×1600 图像，不读取真实屏幕、剪贴板或用户配置。启用 `MAYONNAISE_BUILD_TESTS` 后运行：
+
+```sh
+cmake --build build --target screenshot_resident_fixture
+python tests/screenshot/resident_memory.py build/applications/screenshot/screenshot_resident_fixture
+# KDE Wayland 原生路径：在同一命令前设置 SHOT_TEST_DRIVER=wayland
+```
+
+该检查连续打开/关闭 20 次，验证待机 RSS 回到初始值附近，以及重初始化期间的新请求、单实例锁和退出行为。

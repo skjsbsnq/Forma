@@ -11,13 +11,18 @@ struct Request {
 class Session {
 public:
     static bool send(Request request);
-    explicit Session(std::function<void(Request)> receive);
+    explicit Session(std::function<void(Request)> receive, int inheritedSocket = -1, int inheritedLock = -1);
     ~Session();
     bool owns() const { return m_fd >= 0; }
+    void pause();
+    void resume();
+    /// Replace a quiescent resident process, preserving its socket and queued requests.
+    void restart();
 
 private:
     int m_lock = -1, m_fd = -1;
     std::string m_path;
     std::jthread m_thread;
+    std::function<void(Request)> m_receive;
 };
 }  // namespace shot
