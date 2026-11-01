@@ -1,6 +1,6 @@
 # Arch Linux：Forma 身份验证代理
 
-此配方从当前 Forma 源码构建，包含本地尚未提交的修改。当前版本为 `0.1.0-3`，包含 Forma 家族图标，并修复 NextKde 外轮廓与客户端圆角重叠造成的四角白边。
+此配方从当前 Forma 源码构建，包含本地尚未提交的修改。当前版本为 `0.1.0-5`，包含 Forma 家族图标，并修复 NextKde 外轮廓与客户端圆角重叠造成的四角白边。
 
 ## 打包
 
@@ -9,12 +9,12 @@ cd /home/wwt/Projects/Forma/packaging/polkit-agent
 makepkg -sf
 ```
 
-产物：`forma-polkit-agent-0.1.0-3-x86_64.pkg.tar.zst`。`-s` 会通过 pacman 补齐缺少的构建依赖，`-f` 允许重新构建同版本安装包。
+产物：`forma-polkit-agent-0.1.0-5-x86_64.pkg.tar.zst`。`-s` 会通过 pacman 补齐缺少的构建依赖，`-f` 允许重新构建同版本安装包。
 
 已经安装 Forma 代理时，直接升级并重启：
 
 ```fish
-sudo pacman -U ./forma-polkit-agent-0.1.0-3-x86_64.pkg.tar.zst
+sudo pacman -U ./forma-polkit-agent-0.1.0-5-x86_64.pkg.tar.zst
 systemctl --user restart forma-polkit-agent.service
 ```
 
@@ -26,7 +26,7 @@ systemctl --user restart forma-polkit-agent.service
 
 ```fish
 if sudo -v; and systemctl --user stop plasma-polkit-agent.service
-    if sudo pacman -U ./forma-polkit-agent-0.1.0-3-x86_64.pkg.tar.zst
+    if sudo pacman -U ./forma-polkit-agent-0.1.0-5-x86_64.pkg.tar.zst
         systemctl --user daemon-reload
         systemctl --user enable --now forma-polkit-agent.service
         systemctl --user --no-pager status forma-polkit-agent.service

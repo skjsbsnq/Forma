@@ -1,11 +1,11 @@
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-appstore-0.1.0-4-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-calculator-0.1.0-2-x86_64.pkg.tar.zst
-/home/wwt/文档/Forma/build-arch-memory/packages/forma-finder-0.1.0-22-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/build-rename/packages/forma-finder-0.1.0-26-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-mail-0.2.0rc1-2-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-music-0.1.0-2-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-photos-0.1.0-2-x86_64.pkg.tar.zst
-/home/wwt/文档/Forma/build-arch-memory/packages/forma-polkit-agent-0.1.0-4-x86_64.pkg.tar.zst
-/home/wwt/文档/Forma/build-arch-memory/packages/forma-screenshot-0.1.0-5-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/build-resident-memory/packages/forma-polkit-agent-0.1.0-5-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/build-resident-memory/packages/forma-screenshot-0.1.0-6-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-settings-0.1.0-5-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-taskmanager-0.1.0-4-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-terminal-0.1.0-5-x86_64.pkg.tar.zst

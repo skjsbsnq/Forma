@@ -4,14 +4,14 @@
 
 ## Arch Linux 独立安装包
 
-安装 `forma-screenshot-0.1.0-4-x86_64.pkg.tar.zst` 后，应用可直接运行，Forma 框架、字体和着色器已内置，无需保留源码目录：
+安装 `forma-screenshot-0.1.0-6-x86_64.pkg.tar.zst` 后，应用可直接运行，Forma 框架、字体和着色器已内置，无需保留源码目录：
 
 ```sh
-sudo pacman -U ./forma-screenshot-0.1.0-4-x86_64.pkg.tar.zst
+sudo pacman -U ./forma-screenshot-0.1.0-6-x86_64.pkg.tar.zst
 forma-screenshot-setup
 ```
 
-第二条命令使用普通桌面用户运行，处理快捷键、预热，以及旧用户级原型的备份迁移。详细说明见安装包内的 `ARCH.md`。
+第二条命令使用普通桌面用户运行，处理快捷键、常驻待命，以及旧用户级原型的备份迁移。详细说明见安装包内的 `ARCH.md`。
 
 ## 从源码安装
 
@@ -23,7 +23,7 @@ forma-screenshot-setup
 ./tools/install_forma_screenshot.sh
 ```
 
-脚本安装到 `~/.local`，处理 KDE 会话 PATH 缺少用户 bin 目录的问题，将 `Super+Shift+S` 从 Spectacle 迁移到 Forma 并保留备份。同时创建 KDE 登录自启动入口并启动隐藏的预热进程。再次按快捷键通过用户私有 Unix socket 唤起同一个 Forma 窗口，保留 GPU、字体和纹理资源；隐藏期间窗口不参与帧调度。启动器的 Wayland 激活令牌会转发给常驻进程。
+脚本安装到 `~/.local`，处理 KDE 会话 PATH 缺少用户 bin 目录的问题，将 `Super+Shift+S` 从 Spectacle 迁移到 Forma 并保留备份。同时创建 KDE 登录自启动入口并启动低内存常驻进程。常驻期间只保留事件与私有 Unix socket 服务，按快捷键后才创建窗口和图形资源；取消或成功输出后，释放窗口、原始屏幕像素及 CPU/GPU 纹理。下一次请求重新初始化图形界面，以少量启动开销换取较低待机占用。输出失败时保留当前选区，以便重试。启动器的 Wayland 激活令牌会转发给常驻进程。
 
 ```sh
 ~/.local/bin/forma-screenshot-shortcut --status
@@ -52,7 +52,7 @@ forma-screenshot --once --region
 forma-screenshot --background
 ```
 
-`--copy`、`--save` 支持直接输出；区域模式在首次框选完成后输出。`--output FILE` 指定完整文件路径并隐含 `--save`。自定义 `--save-dir`、直接输出以及 `--once` 使用单次进程，常规快捷键入口使用常驻进程。`--background` 仅用于隐藏预热，不与单次输出选项组合。
+`--copy`、`--save` 支持直接输出；区域模式在首次框选完成后输出。`--output FILE` 指定完整文件路径并隐含 `--save`。自定义 `--save-dir`、直接输出以及 `--once` 使用单次进程，常规快捷键入口使用常驻进程。`--background` 仅用于后台待命，不与单次输出选项组合。
 
 ## 实现边界
 

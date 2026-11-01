@@ -24,6 +24,8 @@ public:
     void setToolbar(const Element& toolbar);
     /// Accept files dragged onto the window. While files hover, the window shows a drop highlight.
     void onFilesDropped(std::function<void(const std::vector<std::string>&)> handler);
+    /// Position-aware drop handler, in window points (for folder targets).
+    void onFilesDroppedAt(std::function<void(const std::vector<std::string>&, Point)> handler);
     /// Keys no widget handled (app-wide shortcuts). Return true if consumed.
     void onKey(std::function<bool(const KeyEvent&)> handler);
     void setTitle(const std::string& title);

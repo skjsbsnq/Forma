@@ -191,6 +191,7 @@ std::string FileView::neighbour(const std::string& from, Key key) const {
 bool FileView::onPointerDown(const PointerEvent& e) {
     if (auto* h = host()) h->setFocus(this, false);
     const std::string item = itemAt(e.position);
+    m_leftPress = e.button == MouseButton::Left;
     m_downAt = e.position;
     m_downItem = item;
     m_collapseOnUp = false;
@@ -266,7 +267,7 @@ void FileView::selectRange(const std::string& from, const std::string& to, bool 
 }
 
 void FileView::onPointerMove(const PointerEvent& e) {
-    if (!isPressed() && !m_dragging && !m_banding) {
+    if (!m_leftPress && !m_dragging && !m_banding) {
         std::string h = itemAt(e.position);
         if (h != m_hover) {
             m_hover = std::move(h);
@@ -295,7 +296,7 @@ void FileView::onPointerMove(const PointerEvent& e) {
         return;
     }
     const Vec2 d = e.position - m_downAt;
-    if (!m_downItem.empty() && ownsSelection() && m_browser->isSelected(m_downItem) && std::hypot(d.x, d.y) > 4) {
+    if (m_leftPress && !m_downItem.empty() && ownsSelection() && m_browser->isSelected(m_downItem) && std::hypot(d.x, d.y) > 4) {
         beginDrag(e.position);
         return;
     }
@@ -303,6 +304,7 @@ void FileView::onPointerMove(const PointerEvent& e) {
 }
 
 void FileView::onPointerUp(const PointerEvent& e) {
+    m_leftPress = false;
     if (m_external) {
         // The drop happened in another app (or was cancelled); nothing to do here.
         m_external = false;

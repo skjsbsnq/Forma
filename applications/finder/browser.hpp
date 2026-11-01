@@ -146,6 +146,7 @@ private:
     mayo::Point m_downAt;
     std::string m_downItem;
     bool m_collapseOnUp = false;  // click on an already selected item: select only it, unless a drag starts
+    bool m_leftPress = false;
     bool m_banding = false;
     mayo::Rect m_band;
     std::set<std::string> m_bandBase;

@@ -90,9 +90,9 @@ private:
 /// "属性" (Get Info): the icon, size, dates, where it is, the original for links and trashed items, the
 /// application they open with (with "更改…"), and the permissions, editable like macOS's Get Info (read & write /
 /// read only / no access for owner, group and others). `appButton` opens the "打开方式" panel; `changed` runs after
-/// a permission change went through.
+/// a permission change went through. `rename` saves a new name and returns whether it succeeded.
 void presentProperties(mayo::WidgetHost& host, const FileEntry& entry, const mayo::Element& appButton,
-                       std::function<void()> changed);
+                       std::function<void()> changed, std::function<bool(const std::string&)> rename = {});
 /// Closes the properties sheet (before another centered panel opens, or two would stack).
 void closeProperties(mayo::WidgetHost& host);
 /// Fills "大小" of an open properties sheet once the folder walk is done.

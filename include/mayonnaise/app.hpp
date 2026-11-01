@@ -13,6 +13,12 @@ namespace mayo {
 
 class Window;
 
+struct AppOptions {
+    /// Keep video/GPU services dormant until a window is needed, and release them after the last window
+    /// closes. For resident services whose UI and image resources are discarded between requests.
+    bool background = false;
+};
+
 struct WindowOptions {
     std::string title = "Mayonnaise";
     int width = 800;    ///< points
@@ -63,7 +69,7 @@ public:
     /// `desktopId` is the app's .desktop file name without the extension ("org.example.Notes"); it becomes the
     /// Wayland app_id / X11 class, which is how docks and task switchers find the icon. Defaults to the
     /// executable's name.
-    explicit App(std::string name, std::string desktopId = {});
+    explicit App(std::string name, std::string desktopId = {}, AppOptions options = {});
     ~App();
     App(const App&) = delete;
     App& operator=(const App&) = delete;

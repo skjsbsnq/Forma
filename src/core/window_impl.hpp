@@ -49,6 +49,7 @@ struct Window::Impl final : WidgetHost {
 
     // File drag & drop.
     std::function<void(const std::vector<std::string>&)> dropHandler;
+    std::function<void(const std::vector<std::string>&, Point)> dropAtHandler;
     std::vector<std::string> pendingDrops;
     double dropHoverUntil = -1;
 

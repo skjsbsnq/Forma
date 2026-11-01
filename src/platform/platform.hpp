@@ -136,7 +136,11 @@ private:
 class Platform {
 public:
     /// `appId` names the .desktop file (Wayland app_id / X11 WM_CLASS) so docks show the right icon.
-    static bool init(const std::string& appId = {});
+    static bool init(const std::string& appId = {}, bool video = true);
+    /// Lazily initializes the display connection; event-only services can still wait and receive post().
+    static bool initVideo();
+    /// Releases video services after every window and GPU device has been destroyed; events stay alive.
+    static void suspendVideo();
     static void shutdown();
 
     /// Blocks up to `timeoutSeconds` (negative = forever) for the next event.

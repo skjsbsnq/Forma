@@ -112,7 +112,7 @@ void App::Impl::dispatch(const platform::PlatformEvent& event) {
     // changing it in the desktop settings is the moment it matters.
     if (event.type == EventType::WindowFocusGained && followsSystemAccent()) refreshAppearance(true);
     for (auto& w : windows) {
-        if (w->impl().platformWindow->id() == event.window) {
+        if (!w->impl().closed && w->impl().platformWindow->id() == event.window) {
             w->impl().handleEvent(event);
             return;
         }
@@ -181,12 +181,27 @@ void App::Impl::reapClosedWindows() {
         w->impl().closedHandler = nullptr;
         handler();
     }
-    std::erase_if(windows, [](const std::unique_ptr<Window>& w) { return w->impl().closed; });
+    if (background && !windows.empty() && std::all_of(windows.begin(), windows.end(),
+            [](const auto& w) { return w->impl().closed; })) {
+        // Renderer and device destruction need the last window/context to remain alive. The service
+        // discards its UI between requests, so none of its image textures need to survive this device.
+        text.reset();
+        renderer.reset();
+        device.reset();
+        rhi::setDevice(nullptr);
+        windows.clear();
+        platform::Platform::suspendVideo();
+#ifdef __GLIBC__
+        malloc_trim(0);
+#endif
+    } else {
+        std::erase_if(windows, [](const std::unique_ptr<Window>& w) { return w->impl().closed; });
+    }
 }
 
 App::App() : App(defaultAppName()) {}
 
-App::App(std::string name, std::string desktopId) : m_impl(std::make_unique<Impl>()) {
+App::App(std::string name, std::string desktopId, AppOptions options) : m_impl(std::make_unique<Impl>()) {
     if (g_app) {
         std::fprintf(stderr, "mayonnaise: only one mayo::App may exist at a time\n");
         std::abort();
@@ -194,6 +209,7 @@ App::App(std::string name, std::string desktopId) : m_impl(std::make_unique<Impl
     g_app = this;
     Impl* impl = m_impl.get();
     impl->name = std::move(name);
+    impl->background = options.background;
     impl->settings = std::make_unique<Settings>(impl->name);
     impl->settings->setReadOnly(!impl->screenshotPath.empty());
     impl->settings->setOnChange([this, impl] {
@@ -204,7 +220,7 @@ App::App(std::string name, std::string desktopId) : m_impl(std::make_unique<Impl
             impl->settings->save();
         });
     });
-    if (!platform::Platform::init(desktopId)) std::abort();
+    if (!platform::Platform::init(desktopId, !options.background)) std::abort();
     impl->refreshAppearance(true);
 }
 
@@ -234,6 +250,8 @@ const Theme& theme() {
 }
 
 Window& App::createWindow(const WindowOptions& options) {
+    if (!platform::Platform::initVideo()) std::abort();
+    if (m_impl->background && !m_impl->device) m_impl->refreshAppearance(true);
     platform::WindowConfig config;
     config.title = options.title;
     config.width = options.width;

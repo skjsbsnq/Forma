@@ -52,6 +52,10 @@ void Window::onFilesDropped(std::function<void(const std::vector<std::string>&)>
     m_impl->dropHandler = std::move(handler);
 }
 
+void Window::onFilesDroppedAt(std::function<void(const std::vector<std::string>&, Point)> handler) {
+    m_impl->dropAtHandler = std::move(handler);
+}
+
 void Window::setTitle(const std::string& title) {
     m_impl->title = uiText(title);
     m_impl->platformWindow->setTitle(uiText(title));
@@ -320,7 +324,7 @@ void Window::Impl::handleEvent(const platform::PlatformEvent& event) {
             dispatcher.magnify(MagnifyEvent{pointer, event.scale});
             break;
         case EventType::DropPosition:
-            if (dropHandler) {
+            if (dropHandler || dropAtHandler) {
                 // There's no "drag left" event, so the highlight times out unless refreshed.
                 dropHoverUntil = platform::Platform::now() + 0.3;
                 scheduleFrame(dropHoverUntil + 0.01);
@@ -335,7 +339,10 @@ void Window::Impl::handleEvent(const platform::PlatformEvent& event) {
             requestRedraw();
             auto files = std::move(pendingDrops);
             pendingDrops.clear();
-            if (dropHandler && !files.empty()) dropHandler(files);
+            if (!files.empty()) {
+                if (dropAtHandler) dropAtHandler(files, event.position);
+                else if (dropHandler) dropHandler(files);
+            }
             break;
         }
         default: break;

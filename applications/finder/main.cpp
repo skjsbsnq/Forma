@@ -27,6 +27,7 @@
 #include "archives.hpp"
 #include "file_model.hpp"
 #include "file_ops.hpp"
+#include "file_clipboard.hpp"
 #include "file_panels.hpp"
 #include "panels.hpp"
 #include "preview_cache.hpp"
@@ -162,10 +163,7 @@ int main(int argc, char** argv) {
         std::string select;
     };
     std::vector<HistoryItem> back, forward;
-    struct Clipboard {
-        std::vector<std::string> paths;
-        bool cut = false;
-    } clipboard;
+    FileClipboard clipboard;
     std::map<std::string, std::vector<FileEntry>> listingCache;
     std::string searchQuery;
     int searchGeneration = 0;
@@ -705,16 +703,18 @@ int main(int argc, char** argv) {
         alert->show(*page->host());
     };
 
-    auto copySelection = [&](bool cut) {
-        auto paths = browser->selectedPaths();
+    auto copyPaths = [&](const std::vector<std::string>& paths, bool cut) {
         if (paths.empty()) return;
+        if (!writeFileClipboard({paths, cut})) {
+            showAlert("无法复制文件", "无法写入系统剪贴板，请重试。");
+            return;
+        }
         clipboard = {paths, cut};
         browser->cut = cut ? std::set<std::string>(paths.begin(), paths.end()) : std::set<std::string>{};
-        std::string text;
-        for (const auto& p : paths) text += (text.empty() ? "" : "\n") + p;
-        if (auto* h = page->host()) h->setClipboardText(text);
         if (auto* v = currentView()) v->invalidate();
     };
+
+    auto copySelection = [&](bool cut) { copyPaths(browser->selectedPaths(), cut); };
 
     auto copyPath = [&] {
         auto paths = browser->selectedPaths();
@@ -724,30 +724,64 @@ int main(int argc, char** argv) {
         if (auto* h = page->host()) h->setClipboardText(text);
     };
 
+    // Resolve collisions before dispatching background work, shared by paste and drops.
+    auto transfer = [&](std::vector<std::string> sources, std::string folder, bool move, FileOps::Done done) {
+        auto perform = [&, sources, folder, move, done] {
+            if (move) ops.move(sources, folder, done);
+            else ops.copy(sources, folder, done);
+        };
+        std::vector<std::string> collisions;
+        for (const auto& src : sources) {
+            if (parentPath(src) == folder || isInside(folder, src)) continue;
+            auto target = fs::path(folder) / fs::path(src).filename();
+            std::error_code ec;
+            if (fs::exists(fs::symlink_status(target, ec))) collisions.push_back(target.string());
+        }
+        if (collisions.empty()) { perform(); return; }
+        auto replace = [&, collisions, perform] {
+            // Preserve replaced items in Trash; abort if any could not be preserved.
+            ops.trash(collisions, [collisions, perform](auto saved) {
+                if (saved.size() == collisions.size()) perform();
+            });
+        };
+        auto alert = std::make_shared<AlertView>(
+            "已存在“" + fs::path(collisions.front()).filename().string() + "”",
+            "请选择同名项目的处理方式。\n保留两者：为新项目自动重命名。\n替换：将原项目移到回收站。" +
+                std::string(collisions.size() > 1 ? "\n此选择适用于本次全部同名项目。" : ""),
+            std::vector<AlertButton>{{"取消", {}}, {"保留两者", perform},
+                                     {"替换", replace, ButtonStyle::Destructive}}, false);
+        alert->show(*page->host());
+    };
+
     auto paste = [&] {
         if (!isRealFolder()) return;
-        std::vector<std::string> sources = clipboard.paths;
-        bool cut = clipboard.cut;
-        if (sources.empty()) {
-            // Paths copied by other programs (one per line, or file:// URIs).
-            std::stringstream ss(page->host() ? page->host()->clipboardText() : std::string());
-            std::string line;
-            while (std::getline(ss, line)) {
-                line = expandUser(line);
-                std::error_code ec;
-                if (!line.empty() && line[0] == '/' && fs::exists(line, ec)) sources.push_back(line);
+        auto files = readFileClipboard();
+        if (files.paths.empty()) {
+            showAlert("无法粘贴", "剪贴板中没有可粘贴的文件或文件夹。");
+            return;
+        }
+        std::vector<std::string> missing;
+        for (const auto& path : files.paths) {
+            std::error_code ec;
+            if (!fs::exists(fs::symlink_status(path, ec))) missing.push_back(path);
+        }
+        if (!missing.empty()) {
+            showAlert("无法粘贴", "源项目已不存在或无法访问：" + missing.front());
+            return;
+        }
+        auto done = [&, files](std::vector<std::string> created) {
+            selectAfterOp(created);
+            if (files.cut && created.size() == files.paths.size()) {
+                const auto current = readFileClipboard();
+                if (current.cut && current.paths == files.paths) {
+                    // Subsequent pastes refer to the moved items, never to missing source paths.
+                    writeFileClipboard({created, false});
+                    clipboard = {};
+                    browser->cut.clear();
+                }
             }
-            cut = false;
-        }
-        if (sources.empty()) return;
-        auto done = [&](std::vector<std::string> created) { selectAfterOp(created); };
-        if (cut) {
-            ops.move(sources, browser->path, done);
-            clipboard = {};
-            browser->cut.clear();
-        } else {
-            ops.copy(sources, browser->path, done);
-        }
+        };
+        transfer(files.paths, browser->path, files.cut, done);
     };
 
     auto duplicate = [&] {
@@ -764,9 +798,13 @@ int main(int argc, char** argv) {
     };
     browser->renameSelection = renameSelected;
 
-    browser->rename = [&](const std::string& path, const std::string& newName) {
+    auto renameItem = [&](const std::string& path, const std::string& newName) -> std::string {
         std::string renamed = ops.rename(path, newName);
-        if (renamed.empty()) return;
+        if (renamed.empty()) return {};
+        if (path == browser->path) {
+            navigateTo(renamed, {}, false);
+            return renamed;
+        }
         if (browser->searching) {
             for (auto& e : browser->entries) {
                 if (e.path == path) {
@@ -775,13 +813,15 @@ int main(int argc, char** argv) {
             }
             browser->select(renamed);
             refreshViews(false);
-            return;
+            return renamed;
         }
         reload();
         browser->select(renamed);
         revealLater(renamed);
         if (mode == ViewMode::Columns) columnBrowser->rebuild(true);
+        return renamed;
     };
+    browser->rename = renameItem;
 
     auto newFolder = [&] {
         if (!isRealFolder() || inTrash()) return;
@@ -804,14 +844,25 @@ int main(int argc, char** argv) {
         if (isInside(folder, trashFilesDirectory())) {
             ops.trash(paths, [&](auto) { reload(); });
         } else if (copy) {
-            ops.copy(paths, folder, done);
+            transfer(paths, folder, false, done);
         } else {
-            ops.move(paths, folder, done);
+            transfer(paths, folder, true, done);
         }
     };
 
-    window.onFilesDropped([&](const std::vector<std::string>& paths) {
-        if (isRealFolder() && !inTrash()) ops.copy(paths, browser->path, [&](std::vector<std::string> c) { selectAfterOp(c); });
+    window.onFilesDroppedAt([&](const std::vector<std::string>& paths, Point position) {
+        Widget* root = page.get();
+        while (root->parent()) root = root->parent();
+        for (Widget* w = root->hitTest(position); w; w = w->parent()) {
+            if (auto* target = dynamic_cast<DropTarget*>(w)) {
+                const auto folder = target->dropFolderAt(position);
+                if (!folder.empty()) browser->drop(paths, folder, true);
+                return;
+            }
+        }
+        // Empty scroll areas and empty folders have no FileView under the pointer.
+        if (isRealFolder() && !inTrash() && page->frame().contains(position))
+            browser->drop(paths, browser->path, true);
     });
 
     // 打开方式 / 属性 -------------------------------------------------------------------------------------
@@ -831,6 +882,8 @@ int main(int argc, char** argv) {
         presentProperties(*page->host(), *entry, appButton, [&] {
             // New permissions on screen: redraw the item's icon and the status line (a program!)
             if (auto* v = currentView()) v->invalidate();
+        }, [&, path](const std::string& name) {
+            return !renameItem(path, name).empty();
         });
         if (entry->isDir) {
             ops.folderSize(entry->path, [](std::uintmax_t bytes, size_t items) { setLatestFolderSize(bytes, items); });
@@ -1180,8 +1233,9 @@ int main(int argc, char** argv) {
         items.push_back(MenuItem("重命名", renameSelected).withIcon(Icon::Pencil).withShortcut("Enter").disabled(!single || trashed));
         items.push_back(MenuItem("创建副本", duplicate).withIcon(Icon::DocOnDoc).withShortcut("Ctrl+D").disabled(!isRealFolder() || trashed));
         items.push_back(MenuItem::separator());
-        items.push_back(MenuItem("复制", [&] { copySelection(false); }).withShortcut("Ctrl+C"));
-        items.push_back(MenuItem("剪切", [&] { copySelection(true); }).withShortcut("Ctrl+X").disabled(trashed));
+        items.push_back(MenuItem("复制", [&, paths] { copyPaths(paths, false); }).withShortcut("Ctrl+C"));
+        items.push_back(MenuItem("剪切", [&, paths] { copyPaths(paths, true); }).withShortcut("Ctrl+X").disabled(trashed));
+        items.push_back(MenuItem("粘贴项目", paste).withShortcut("Ctrl+V").disabled(!isRealFolder() || inTrash()));
         items.push_back(MenuItem("复制路径", copyPath).withShortcut("Ctrl+Alt+C"));
         items.push_back(MenuItem::separator());
         if (!isRealFolder()) items.push_back(MenuItem("打开所在文件夹", showInEnclosingFolder).withShortcut("Ctrl+R").disabled(!single));
@@ -1199,7 +1253,12 @@ int main(int argc, char** argv) {
         menu->showFrom(*page->menuAnchor);
         if (auto* h = page->host()) h->setFocus(menu.get(), false);
     };
-    menu->setOnDismiss([&] { app.post([&] { if (!quickLook->isShown()) focusView(); }); });
+    menu->setOnDismiss([&] {
+        app.post([&] {
+            // A menu action may already have focused an editor or opened a panel.
+            if (auto* h = page->host(); h && !h->focusedWidget()) focusView();
+        });
+    });
 
     // The toolbar's action menu is rebuilt whenever it might have changed.
     std::function<void(const std::string&)> removeVolume;
@@ -1528,7 +1587,7 @@ int main(int argc, char** argv) {
     // menu[:name], rename[:name], search:<query>, size:<points>, narrow, scroll:<points>, overflow,
     // goto, open:<name>, back, up, newfolder, trash:<name>, undo, duplicate:<name>, copy:<name>, cut:<name>,
     // paste, renameto:<old>=<new>, drop:<item>=<folder>, hidden, type:<letters>, settings, closesettings,
-    // wait:<seconds>.
+    // input:<text>, key:<enter|escape>, wait:<seconds>.
     if (const char* env = std::getenv("MAYO_DEMO")) {
         auto selectNamed = [&](const std::string& name) {
             for (const auto& e : browser->entries) {
@@ -1671,6 +1730,14 @@ int main(int argc, char** argv) {
                     for (char ch : arg) {
                         if (auto* v = currentView(); v && ch >= 'a' && ch <= 'z')
                             v->onKeyDown(KeyEvent{static_cast<Key>(static_cast<int>(Key::A) + (ch - 'a'))});
+                    }
+                } else if (what == "input") {
+                    if (auto* h = page->host(); h && h->focusedWidget())
+                        h->focusedWidget()->onTextInput({arg});
+                } else if (what == "key") {
+                    if (auto* h = page->host(); h && h->focusedWidget()) {
+                        if (arg == "enter") h->focusedWidget()->onKeyDown({Key::Enter});
+                        else if (arg == "escape") h->focusedWidget()->onKeyDown({Key::Escape});
                     }
                 }
             });

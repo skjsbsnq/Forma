@@ -29,9 +29,11 @@ std::string filename(const Options& options) {
 class CaptureController {
 public:
     CaptureController(App& app, Options options, bool resident)
-        : m_app(app), m_options(std::move(options)), m_resident(resident) {
+        : m_app(app), m_options(std::move(options)), m_resident(resident) {}
+    void ensureWindow() {
+        if (m_window) return;
         m_view = std::make_shared<shot::CaptureView>();
-        m_window = &app.createWindow({.title = "Forma 截图",
+        m_window = &m_app.createWindow({.title = "Forma 截图",
                                       .width = 960,
                                       .height = 640,
                                       .minWidth = 320,
@@ -39,7 +41,7 @@ public:
                                       .initiallyHidden = true});
         m_window->setContent(m_view);
         m_window->setFullscreen(true);
-        m_window->onKey([this](const KeyEvent& key) { return m_view->key(key); });
+        m_window->onKey([this](const KeyEvent& key) { return m_view && m_view->key(key); });
         m_window->onCloseRequested([this] {
             cancel();
             return false;
@@ -73,6 +75,7 @@ public:
     }
     void activate(shot::Mode mode, bool force = false, bool launcherFocus = false) {
         if (m_finishing || m_capturing) return;
+        ensureWindow();
         if (!force && m_window->isVisible()) {
             if (mode != m_view->mode()) {
                 if (mode == shot::Mode::Window || m_view->mode() == shot::Mode::Window) {
@@ -94,7 +97,7 @@ public:
         m_window->hide();
         m_capturing = true;
         auto generation = ++m_generation;
-        // Keep the renderer, text atlas and window warm. Only capture pixels on a worker.
+        // Capture pixels on a worker; the display/UI is created only for an active request.
         m_capture = std::jthread([this, mode, generation](std::stop_token stop) {
             try {
                 auto image = shot::capture(mode == shot::Mode::Window, stop);
@@ -121,6 +124,7 @@ public:
                 m_app.post([this, generation] {
                     if (generation == m_generation) {
                         m_capturing = false;
+                        releaseWindow();
                         runPending();
                         if (!m_resident) m_app.quit();
                     }
@@ -131,6 +135,7 @@ public:
                     if (generation != m_generation) return;
                     m_capturing = false;
                     std::cerr << "Forma 截图：" << message << '\n';
+                    releaseWindow();
                     runPending();
                     if (!m_resident) m_app.quit(1);
                 });
@@ -142,14 +147,15 @@ public:
         ++m_generation;
         m_capture.request_stop();
         m_capturing = false;
-        if (!m_window->isVisible()) {
+        if (!m_window || !m_window->isVisible()) {
+            releaseWindow();
             if (!m_resident) m_app.quit();
             return;
         }
         m_view->disappear();
         m_finishing = true;
         m_app.after(.12, [this] {
-            m_window->hide();
+            releaseWindow();
             m_finishing = false;
             runPending();
             if (!m_resident) m_app.quit();
@@ -157,6 +163,15 @@ public:
     }
 
 private:
+    void releaseWindow() {
+        if (m_window) {
+            m_window->hide();
+            m_window->close();
+            m_window = nullptr;
+        }
+        // Discard the original screen pixels and its dynamic CPU/GPU texture once the request ends.
+        m_view.reset();
+    }
     struct Pending {
         shot::Mode mode;
         std::string token;
@@ -189,7 +204,7 @@ private:
                 m_app.post([this, generation] {
                     m_app.after(.12, [this, generation] {
                         if (generation != m_generation) return;
-                        m_window->hide();
+                        releaseWindow();
                         m_finishing = false;
                         runPending();
                         if (!m_resident) m_app.quit();
@@ -246,7 +261,7 @@ int main(int argc, char** argv) {
         else if (a == "--help") {
             std::cout
                 << "Forma 截图\n--region / --fullscreen / --window\n--copy / --save / --output FILE / --save-dir PATH\n"
-                   "--background 常驻预热；--quit 退出常驻；--once 单次运行\n"
+                   "--background 低内存常驻；--quit 退出常驻；--once 单次运行\n"
                    "选区内拖动移动，边缘缩放，Shift约束正方形，双击/Enter复制，S保存，Esc取消。\n";
             return 0;
         } else {
@@ -277,7 +292,7 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
-        App app("forma-screenshot", MAYO_DESKTOP_ID);
+        App app("forma-screenshot", MAYO_DESKTOP_ID, {.background = true});
         app.setDefaultAppearanceMode(AppearanceMode::Light);
         app.setKeepAlive(true);
         CaptureController controller(app, options, resident);

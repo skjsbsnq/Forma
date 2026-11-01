@@ -664,9 +664,50 @@ public:
     mayo::Size measureContent(mayo::Size /*available*/) override { return {0, 0}; }
 };
 
+class RenamePanel : public CenteredPanel {
+public:
+    RenamePanel(FileEntry entry, std::function<bool(const std::string&)> rename)
+        : CenteredPanel(Material::Popover), m_entry(std::move(entry)), m_rename(std::move(rename)) {
+        setPadding(Insets(18));
+        field.setText(m_entry.name);
+        field.onSubmit([this](const std::string&) { save(); });
+        auto cancel = Button("取消").onClick([this] { dismiss(); });
+        auto saveButton = Button("重命名").style(ButtonStyle::Prominent).onClick([this] { save(); });
+        addChild(VStack({Label("重命名").font(TextStyle::Headline), field,
+                         HStack({Spacer(), cancel, saveButton}).spacing(8)})
+                     .spacing(12)
+                     .width(380)
+                     .node());
+    }
+
+    void show(WidgetHost& host) {
+        present(host);
+        host.setFocus(field.node().get(), true);
+        size_t stem = m_entry.isDir ? m_entry.name.size() : m_entry.name.rfind('.');
+        if (stem == std::string::npos || stem == 0) stem = m_entry.name.size();
+        field->moveCaret(0, false);
+        field->moveCaret(stem, true);
+    }
+
+private:
+    void save() {
+        auto keep = shared_from_this();
+        if (field.value() == m_entry.name) {
+            dismiss();
+        } else if (m_rename && m_rename(field.value())) {
+            dismiss();
+        }
+    }
+
+    FileEntry m_entry;
+    std::function<bool(const std::string&)> m_rename;
+    TextField field;
+};
+
 class PropertiesView : public CenteredPanel {
 public:
-    PropertiesView(FileEntry entry, Element appButton, std::function<void()> changed)
+    PropertiesView(FileEntry entry, Element appButton, std::function<void()> changed,
+                   std::function<bool(const std::string&)> rename)
         : CenteredPanel(Material::Popover), m_entry(std::move(entry)), m_changed(std::move(changed)) {
         setPadding(Insets(20, 20, 18, 20));
         const FileEntry e = m_entry;
@@ -680,7 +721,15 @@ public:
         icon->setFixedHeight(60);
         m_name = Label(e.name).font(TextStyle::Headline).lineLimit(2).maxWidth(242);
         auto pencil = Button(Icon::Pencil).style(ButtonStyle::Borderless).tooltip("重命名");
-        pencil.onClick([this] { if (m_onRename) m_onRename(); });
+        pencil.disabled(!rename || isInTrash(e.path));
+        pencil.onClick([this, rename = std::move(rename)] {
+            auto keep = shared_from_this();
+            auto* host = m_shownHost;
+            if (!host) return;
+            auto panel = std::make_shared<RenamePanel>(m_entry, rename);
+            dismiss();
+            panel->show(*host);
+        });
         auto subtitle = Label(kindDescription(e) + (e.isDir ? "" : " · " + formatSize(e.size))).secondary();
         m_sizeLabel = subtitle;
         auto header = HStack({HStack({Element(icon)}).frame(60, 60),
@@ -747,7 +796,6 @@ public:
                      .node());
     }
 
-    std::function<void()> m_onRename;
     void setFolderSize(std::uintmax_t bytes, size_t items) {
         m_sizeLabel.setText(formatSize(bytes) + "（" + itemCount(items) + "）");
     }
@@ -769,8 +817,8 @@ std::weak_ptr<PropertiesView> latestProperties;
 }  // namespace
 
 void presentProperties(WidgetHost& host, const FileEntry& entry, const Element& appButton,
-                       std::function<void()> changed) {
-    auto panel = std::make_shared<PropertiesView>(entry, appButton, std::move(changed));
+                       std::function<void()> changed, std::function<bool(const std::string&)> rename) {
+    auto panel = std::make_shared<PropertiesView>(entry, appButton, std::move(changed), std::move(rename));
     panel->present(host);
     // Only the newest sheet reports its size; an older one may still be fading out behind it.
     latestProperties = panel;

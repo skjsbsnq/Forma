@@ -16,7 +16,8 @@ namespace mayo::platform::wayland {
 
 /// Starts a drag of `paths` from `surface` (both are SDL's wl_display / wl_surface). `ended` runs on the UI
 /// thread (from dispatch()) once the drop happened or the drag was cancelled. False if not possible.
-bool startFileDrag(void* display, void* surface, const std::vector<std::string>& paths, std::function<void()> ended);
+bool startFileDrag(void* display, void* surface, const std::vector<std::string>& paths, std::function<void()> ended,
+                   std::function<void(void*, float, float, const std::vector<std::string>&)> localDrop = {});
 
 /// Handles queued protocol events (pointer serials, data requests). Call after SDL pumped the display.
 void dispatch();
@@ -37,5 +38,7 @@ bool takeScrollStop();
 
 /// Sets up the pointer tracking early, so the serial of the press that starts a drag is known.
 void prepare(void* display);
+/// Destroy our proxies before SDL disconnects its display; allows later video initialization.
+void shutdown();
 
 }  // namespace mayo::platform::wayland

@@ -34,7 +34,7 @@ Rect CenteredPanel::placePopup(Size window, Size measured) {
 
 AlertView::AlertView(std::string title, std::string message, std::vector<AlertButton> buttons, bool caution)
     : CenteredPanel(Material::Popover), m_buttons(std::move(buttons)) {
-    setPadding(Insets(20, 20, 18, 20));
+    setPadding(Insets(24, 24, 22, 24));
     auto icon = Canvas([caution](Painter& p, const Rect& r) {
         const auto& c = theme().colors;
         if (caution) {
@@ -45,19 +45,19 @@ AlertView::AlertView(std::string title, std::string message, std::vector<AlertBu
             drawFolderIcon(p, r);
         }
     });
-    icon.frame(52, 52);
-    auto titleLabel = Label(std::move(title)).font(TextStyle::Headline).textAlign(TextAlign::Center).maxWidth(250);
-    auto messageLabel = Label(std::move(message)).font(TextStyle::Subheadline).textAlign(TextAlign::Center).maxWidth(250);
+    icon.frame(40, 40);
+    auto titleLabel = Label(std::move(title)).font(TextStyle::Headline).textAlign(TextAlign::Center).maxWidth(304);
+    auto messageLabel = Label(std::move(message)).font(TextStyle::Subheadline).textAlign(TextAlign::Center).maxWidth(304);
     std::vector<Element> row;
     for (size_t i = 0; i < m_buttons.size(); ++i) {
         auto b = Button(m_buttons[i].title).style(m_buttons[i].style).onClick([this, i] { choose(i); });
         b.fillWidth();
         row.emplace_back(b);
     }
-    auto buttonRow = HStack(row).spacing(8);
+    auto buttonRow = VStack(row).spacing(8);
     buttonRow.fillWidth();
     auto stack = VStack({icon, titleLabel, messageLabel, Spacer(4), buttonRow}).spacing(8).align(Alignment::Top);
-    stack.width(250);
+    stack.width(304);
     addChild(stack.node());
 }
 

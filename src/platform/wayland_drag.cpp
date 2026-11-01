@@ -16,10 +16,11 @@ namespace mayo::platform::wayland {
 
 #if !defined(__linux__)
 
-bool startFileDrag(void*, void*, const std::vector<std::string>&, std::function<void()>) { return false; }
+bool startFileDrag(void*, void*, const std::vector<std::string>&, std::function<void()>, std::function<void(void*, float, float, const std::vector<std::string>&)>) { return false; }
 void dispatch() {}
 bool dragActive() { return false; }
 void prepare(void*) {}
+void shutdown() {}
 int scrollSource() { return -1; }
 bool scrollGestureActive() { return false; }
 bool takeScrollStop() { return false; }
@@ -49,6 +50,8 @@ struct Lib {
     std::uint32_t (*getVersion)(wl_proxy*) = nullptr;
     void* (*createWrapper)(void*) = nullptr;
     void (*wrapperDestroy)(void*) = nullptr;
+    void (*proxyDestroy)(wl_proxy*) = nullptr;
+    void (*queueDestroy)(wl_event_queue*) = nullptr;
     const wl_interface* registryIface = nullptr;
     const wl_interface* seatIface = nullptr;
     const wl_interface* pointerIface = nullptr;
@@ -72,6 +75,7 @@ Lib& lib() {
                sym(r.marshal, "wl_proxy_marshal_flags") && sym(r.addListener, "wl_proxy_add_listener") &&
                sym(r.setQueue, "wl_proxy_set_queue") && sym(r.getVersion, "wl_proxy_get_version") &&
                sym(r.createWrapper, "wl_proxy_create_wrapper") && sym(r.wrapperDestroy, "wl_proxy_wrapper_destroy") &&
+               sym(r.proxyDestroy, "wl_proxy_destroy") && sym(r.queueDestroy, "wl_event_queue_destroy") &&
                sym(r.registryIface, "wl_registry_interface") && sym(r.seatIface, "wl_seat_interface") &&
                sym(r.pointerIface, "wl_pointer_interface") && sym(r.managerIface, "wl_data_device_manager_interface") &&
                sym(r.deviceIface, "wl_data_device_interface") && sym(r.sourceIface, "wl_data_source_interface") &&
@@ -114,6 +118,11 @@ struct State {
     bool failed = false;
 
     wl_proxy* source = nullptr;
+    wl_proxy* dropOffer = nullptr;
+    void* dropSurface = nullptr;
+    float dropX = 0, dropY = 0;
+    std::vector<std::string> paths;
+    std::function<void(void*, float, float, const std::vector<std::string>&)> localDrop;
     std::string uriList;
     std::string plain;
     std::function<void()> ended;
@@ -147,6 +156,8 @@ void releaseDevice() {
     g.device = nullptr;
 }
 
+void clearDropOffer();
+
 void finishDrag(bool destroySource) {
     if (g.ended) {
         auto fn = std::move(g.ended);
@@ -154,6 +165,7 @@ void finishDrag(bool destroySource) {
         fn();
     }
     if (destroySource && g.source) {
+        clearDropOffer();
         lib().marshal(g.source, kSourceDestroy, nullptr, lib().getVersion(g.source), kMarshalDestroy);
         g.source = nullptr;
         releaseDevice();
@@ -165,13 +177,19 @@ void finishDrag(bool destroySource) {
 
 void noop() {}
 
+extern void (*kSeatListener[])(void);
+
 void registryGlobal(void* /*data*/, wl_proxy* registry, std::uint32_t name, const char* iface, std::uint32_t version) {
     auto bind = [&](const wl_interface* interface, const char* ifaceName, std::uint32_t want) {
         const std::uint32_t v = version < want ? version : want;
         return lib().marshal(registry, kRegistryBind, interface, v, 0, name, ifaceName, v, nullptr);
     };
     // v5 pointers report the scroll source and when the fingers lift (axis_source / axis_stop).
-    if (!g.seat && std::strcmp(iface, "wl_seat") == 0) g.seat = bind(lib().seatIface, "wl_seat", 5);
+    if (!g.seat && std::strcmp(iface, "wl_seat") == 0) {
+        g.seat = bind(lib().seatIface, "wl_seat", 5);
+        // Bind replies may arrive within this roundtrip; install before dispatching them.
+        lib().addListener(g.seat, kSeatListener, nullptr);
+    }
     if (!g.manager && std::strcmp(iface, "wl_data_device_manager") == 0)
         g.manager = bind(lib().managerIface, "wl_data_device_manager", 3);
 }
@@ -217,14 +235,41 @@ void seatCapabilities(void*, wl_proxy* seat, std::uint32_t caps) {
 void seatName(void*, wl_proxy*, const char*) {}
 void (*kSeatListener[])(void) = {reinterpret_cast<void (*)()>(seatCapabilities), reinterpret_cast<void (*)()>(seatName)};
 
-void deviceDataOffer(void*, wl_proxy*, wl_proxy* offer) {
-    // Drops and the clipboard are SDL's business; we never read offers, so let them go right away.
-    if (offer) lib().marshal(offer, kOfferDestroy, nullptr, lib().getVersion(offer), kMarshalDestroy);
+void offerMime(void*, wl_proxy*, const char*) {}
+void offerActions(void*, wl_proxy*, std::uint32_t) {}
+void (*kOfferListener[])(void) = {reinterpret_cast<void (*)()>(offerMime),
+    reinterpret_cast<void (*)()>(offerActions), reinterpret_cast<void (*)()>(offerActions)};
+void clearDropOffer() {
+    if (g.dropOffer) lib().marshal(g.dropOffer, kOfferDestroy, nullptr, lib().getVersion(g.dropOffer), kMarshalDestroy);
+    g.dropOffer = nullptr;
+    g.dropSurface = nullptr;
 }
-void deviceEnter(void*, wl_proxy*, std::uint32_t, wl_proxy*, std::int32_t, std::int32_t, wl_proxy*) {}
-void deviceLeave(void*, wl_proxy*) {}
-void deviceMotion(void*, wl_proxy*, std::uint32_t, std::int32_t, std::int32_t) {}
-void deviceDrop(void*, wl_proxy*) {}
+void deviceDataOffer(void*, wl_proxy*, wl_proxy* offer) {
+    // This device exists only during our outgoing drag. Keep its self-drop offer alive.
+    clearDropOffer();
+    g.dropOffer = offer;
+    if (offer) lib().addListener(offer, kOfferListener, nullptr);
+}
+void deviceEnter(void*, wl_proxy*, std::uint32_t serial, wl_proxy* surface,
+                 std::int32_t x, std::int32_t y, wl_proxy* offer) {
+    if (!offer || offer != g.dropOffer || !g.source) return;
+    g.dropSurface = surface;
+    g.dropX = x / 256.0f; g.dropY = y / 256.0f;
+    lib().marshal(offer, 0, nullptr, lib().getVersion(offer), 0, serial, "text/uri-list");
+    if (lib().getVersion(offer) >= 3)
+        lib().marshal(offer, 4, nullptr, lib().getVersion(offer), 0, kActionCopy, kActionCopy);
+}
+void deviceLeave(void*, wl_proxy*) { clearDropOffer(); }
+void deviceMotion(void*, wl_proxy*, std::uint32_t, std::int32_t x, std::int32_t y) {
+    g.dropX = x / 256.0f; g.dropY = y / 256.0f;
+}
+void deviceDrop(void*, wl_proxy*) {
+    if (!g.dropSurface || !g.dropOffer) return;
+    if (g.localDrop) g.localDrop(g.dropSurface, g.dropX, g.dropY, g.paths);
+    if (lib().getVersion(g.dropOffer) >= 3)
+        lib().marshal(g.dropOffer, 3, nullptr, lib().getVersion(g.dropOffer), 0);
+    clearDropOffer();
+}
 void deviceSelection(void*, wl_proxy*, wl_proxy*) {}
 void (*kDeviceListener[])(void) = {
     reinterpret_cast<void (*)()>(deviceDataOffer), reinterpret_cast<void (*)()>(deviceEnter),
@@ -245,7 +290,7 @@ void sourceSend(void*, wl_proxy*, const char* mime, std::int32_t fd) {
     ::close(fd);
 }
 void sourceCancelled(void*, wl_proxy*) { finishDrag(true); }
-void sourceDropPerformed(void*, wl_proxy*) { finishDrag(false); }  // data may still be requested
+void sourceDropPerformed(void*, wl_proxy*) {}  // data may still be requested
 void sourceFinished(void*, wl_proxy*) { finishDrag(true); }
 void sourceAction(void*, wl_proxy*, std::uint32_t) {}
 void (*kSourceListener[])(void) = {
@@ -275,7 +320,6 @@ bool init(void* display) {
         g.failed = true;
         return false;
     }
-    lib().addListener(g.seat, kSeatListener, nullptr);
     lib().roundtripQueue(g.display, g.queue);  // seat capabilities -> pointer
     // No wl_data_device yet: Mutter sends the clipboard selection and drops to only one data device per
     // client, so a second one here would starve SDL's (paste from other apps and drops stopped working).
@@ -290,7 +334,19 @@ bool init(void* display) {
 
 void prepare(void* display) { init(display); }
 
-bool startFileDrag(void* display, void* surface, const std::vector<std::string>& paths, std::function<void()> ended) {
+void shutdown() {
+    // The connection is about to close. Destroy local proxies without invoking user callbacks or
+    // waiting for protocol replies; none of these pointers may survive into the next display.
+    if (lib().ok) {
+        for (auto* proxy : {g.source, g.device, g.pointer, g.seat, g.manager, g.registry})
+            if (proxy) lib().proxyDestroy(proxy);
+        if (g.queue) lib().queueDestroy(g.queue);
+    }
+    g = State{};
+}
+
+bool startFileDrag(void* display, void* surface, const std::vector<std::string>& paths, std::function<void()> ended,
+                   std::function<void(void*, float, float, const std::vector<std::string>&)> localDrop) {
     if (paths.empty() || !surface || !init(display) || !g.pointer) return false;
     dispatch();  // pick up the serial of the press that started this drag
     if (g.pressSerial == 0) return false;
@@ -302,6 +358,8 @@ bool startFileDrag(void* display, void* surface, const std::vector<std::string>&
         g.uriList += "file://" + percentEncode(p) + "\r\n";
         g.plain += (g.plain.empty() ? "" : "\n") + p;
     }
+    g.paths = paths;
+    g.localDrop = std::move(localDrop);
     g.ended = std::move(ended);
     if (!g.device) {
         g.device = lib().marshal(g.manager, kManagerGetDevice, lib().deviceIface, lib().getVersion(g.manager), 0, nullptr, g.seat);
@@ -309,10 +367,12 @@ bool startFileDrag(void* display, void* surface, const std::vector<std::string>&
     }
     g.source = create(g.manager, kManagerCreateSource, lib().sourceIface);
     lib().addListener(g.source, kSourceListener, nullptr);
-    for (const char* mime : {"text/uri-list", "text/plain;charset=utf-8", "text/plain", "UTF8_STRING"})
+    // SDL can prefer a text offer over URI data, then try to parse plain paths as URIs.
+    // File drags advertise the interoperable file format only.
+    for (const char* mime : {"text/uri-list"})
         lib().marshal(g.source, kSourceOffer, nullptr, lib().getVersion(g.source), 0, mime);
     if (lib().getVersion(g.source) >= 3)
-        lib().marshal(g.source, kSourceSetActions, nullptr, lib().getVersion(g.source), 0, kActionCopy | kActionMove);
+        lib().marshal(g.source, kSourceSetActions, nullptr, lib().getVersion(g.source), 0, kActionCopy);
     lib().marshal(g.device, kDeviceStartDrag, nullptr, lib().getVersion(g.device), 0, g.source, surface, nullptr, g.pressSerial);
     lib().flush(g.display);
     return true;

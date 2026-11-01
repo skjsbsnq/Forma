@@ -26,6 +26,7 @@ struct App::Impl {
     std::optional<Appearance> envAppearance;     // MAYO_APPEARANCE: wins, never saved
     Color accent = Theme::defaultAccent();       // effective
     std::optional<Color> systemAccent;           // last value read from the desktop
+    bool background = false;
     bool running = false;
     bool keepAlive = false;
     bool trimPending = false;  // work happened since the heap was last returned to the OS

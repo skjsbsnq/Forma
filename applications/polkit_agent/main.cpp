@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     if (dark || light) setenv("MAYO_APPEARANCE", dark ? "dark" : "light", 1);
-    mayo::App app("forma-polkit-agent", "io.github.skjsbsnq.Forma.PolkitAgent");
+    mayo::App app("forma-polkit-agent", "io.github.skjsbsnq.Forma.PolkitAgent", {.background = true});
     app.setKeepAlive(true);
     if (backdrop) {
         auto& background = app.createWindow({.title = "Forma Material Test Pattern", .width = 800, .height = 700,
@@ -95,13 +95,27 @@ int main(int argc, char** argv) {
         }));
         background.onCloseRequested([&] { app.quit(); return false; });
     }
-    auto& window = app.createWindow({.title = "Authentication", .width = 300, .height = 390,
-        .minWidth = 300, .minHeight = 300, .resizable = false, .initiallyHidden = true,
-        .dialog = true, .cornerRadius = 28, .backgroundBlur = true, .backgroundOpacity = .78f,
-        .compositorFrame = nextKdeOwnsFrame()});
-    auto dialog = std::make_shared<forma::auth::Dialog>();
-    mayo::ScrollView scroll{mayo::Element(dialog)};
-    window.setContent(scroll);
+    mayo::Window* window = nullptr;
+    std::shared_ptr<forma::auth::Dialog> dialog;
+    forma::polkit::Backend* activeBackend = nullptr;
+    auto ensureDialog = [&] {
+        if (window) return;
+        window = &app.createWindow({.title = "Authentication", .width = 300, .height = 390,
+            .minWidth = 300, .minHeight = 300, .resizable = false, .initiallyHidden = true,
+            .dialog = true, .cornerRadius = 28, .backgroundBlur = true, .backgroundOpacity = .78f,
+            .compositorFrame = nextKdeOwnsFrame()});
+        dialog = std::make_shared<forma::auth::Dialog>();
+        window->setContent(mayo::ScrollView{mayo::Element(dialog)});
+        dialog->onResponse = [&](std::string response) { activeBackend->respond(std::move(response)); };
+        dialog->onCancel = [&] { activeBackend->cancel(); };
+        dialog->onRetry = [&] { activeBackend->retry(); };
+        dialog->onIdentity = [&](int i) { activeBackend->selectIdentity(i); };
+        window->onCloseRequested([&] { activeBackend->cancel(); return false; });
+        window->onKey([&](const mayo::KeyEvent& e) {
+            if (e.key == mayo::Key::Escape) { activeBackend->cancel(); return true; }
+            return false;
+        });
+    };
     bool wasActive = false;
     std::string lastRegistrationStatus;
     forma::polkit::Backend backend([&](const forma::polkit::State& state) {
@@ -110,11 +124,17 @@ int main(int argc, char** argv) {
             if (!state.status.empty()) std::fprintf(stderr, "forma-polkit-agent: %s\n", state.status.c_str());
         }
         if (!state.active) {
-            dialog->clearInput();
-            if (wasActive) window.hide();
+            if (dialog) dialog->clearInput();
+            if (window) {
+                window->hide();
+                window->close();
+                window = nullptr;
+            }
+            dialog.reset();
             wasActive = false;
             return;
         }
+        ensureDialog();
         forma::auth::DialogState view;
         view.message = state.message;
         view.iconName = state.iconName;
@@ -127,12 +147,14 @@ int main(int argc, char** argv) {
         view.waiting = state.awaitingResponse;
         view.retry = state.canRetry;
         dialog->update(std::move(view));
-        window.setSize({300, std::min(680.f, dialog->preferredHeight())});
-        if (!wasActive) { window.show(); window.raise(); }
+        window->setSize({300, std::min(680.f, dialog->preferredHeight())});
+        if (!wasActive) { window->show(); window->raise(); }
         wasActive = true;
         dialog->focusInput();
     });
+    activeBackend = &backend;
     if (preview) {
+        ensureDialog();
         forma::auth::DialogState state;
         state.preview = true;
         state.title = "Migration Assistant";
@@ -140,29 +162,23 @@ int main(int argc, char** argv) {
         state.identities = multi ? std::vector<std::string>{"Admin", "Administrator"} : std::vector<std::string>{"Admin"};
         state.retry = failure;
         dialog->update(state);
-        window.setSize({300, std::min(680.f, dialog->preferredHeight())});
+        window->setSize({300, std::min(680.f, dialog->preferredHeight())});
         dialog->onCancel = [&] { app.quit(); };
         dialog->onResponse = [&](std::string response) {
             // No password check even in the preview. Always show a fabricated failure state.
             volatile char* data = response.data();
             for (size_t i = 0; i < response.size(); ++i) data[i] = 0;
-            state.retry = true; dialog->update(state); window.setSize({300, std::min(680.f, dialog->preferredHeight())});
+            state.retry = true; dialog->update(state); window->setSize({300, std::min(680.f, dialog->preferredHeight())});
         };
         dialog->onRetry = [&] { state.retry = false; dialog->update(state); dialog->focusInput(); };
         dialog->onIdentity = [&](int i) { state.selected = i; dialog->update(state); dialog->focusInput(); };
         // These callbacks capture state, which must remain alive for the preview event loop.
-        window.onCloseRequested([&] { app.quit(); return false; });
-        window.onKey([&](const mayo::KeyEvent& e) { if (e.key == mayo::Key::Escape) { app.quit(); return true; } return false; });
-        window.show();
+        window->onCloseRequested([&] { app.quit(); return false; });
+        window->onKey([&](const mayo::KeyEvent& e) { if (e.key == mayo::Key::Escape) { app.quit(); return true; } return false; });
+        window->show();
         dialog->focusInput();
         return app.run();
     }
-    dialog->onResponse = [&](std::string response) { backend.respond(std::move(response)); };
-    dialog->onCancel = [&] { backend.cancel(); };
-    dialog->onRetry = [&] { backend.retry(); };
-    dialog->onIdentity = [&](int i) { backend.selectIdentity(i); };
-    window.onCloseRequested([&] { backend.cancel(); return false; });
-    window.onKey([&](const mayo::KeyEvent& e) { if (e.key == mayo::Key::Escape) { backend.cancel(); return true; } return false; });
     std::signal(SIGTERM, terminate);
     std::signal(SIGINT, terminate);
     backend.start();
@@ -176,6 +192,6 @@ int main(int argc, char** argv) {
     app.after(0, pump);
     const int result = app.run();
     backend.shutdown();
-    dialog->clearInput();
+    if (dialog) dialog->clearInput();
     return result;
 }

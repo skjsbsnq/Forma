@@ -417,22 +417,57 @@ bool PlatformWindow::startFileDrag(const std::vector<std::string>& paths) {
         e.type = g_dragEndEvent;
         e.user.windowID = id;
         SDL_PushEvent(&e);
+    }, [](void* targetSurface, float x, float y, const std::vector<std::string>& files) {
+        int count = 0;
+        SDL_Window** windows = SDL_GetWindows(&count);
+        for (int i = 0; i < count; ++i) {
+            auto* w = windows[i];
+            if (SDL_GetPointerProperty(SDL_GetWindowProperties(w), SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, nullptr) != targetSurface)
+                continue;
+            SDL_Event e{};
+            e.type = SDL_EVENT_DROP_POSITION;
+            e.drop.windowID = SDL_GetWindowID(w);
+            e.drop.x = x; e.drop.y = y;
+            SDL_PushEvent(&e);
+            for (const auto& path : files) {
+                e.type = SDL_EVENT_DROP_FILE;
+                e.drop.data = path.c_str();
+                SDL_PushEvent(&e);
+            }
+            e.type = SDL_EVENT_DROP_COMPLETE;
+            e.drop.data = nullptr;
+            SDL_PushEvent(&e);
+            break;
+        }
+        SDL_free(windows);
     });
 }
 
 // ---------------------------------------------------------------------------------------------
-bool Platform::init(const std::string& appId) {
+bool Platform::init(const std::string& appId, bool video) {
     if (!appId.empty()) SDL_SetHint(SDL_HINT_APP_ID, appId.c_str());
     SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1");
     // EGL on X11 too (Wayland always uses it): zero-copy video needs EGL dma-buf import.
     if (!std::getenv("MAYO_GLX")) SDL_SetHint(SDL_HINT_VIDEO_FORCE_EGL, "1");
+    // Without this, the first click on an unfocused window is swallowed — macOS delivers it.
+    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
+    if (!SDL_Init(SDL_INIT_EVENTS)) {
+        SDL_Log("mayonnaise: SDL_Init failed: %s", SDL_GetError());
+        return false;
+    }
+    g_wakeEvent = SDL_RegisterEvents(1);
+    g_dragEndEvent = SDL_RegisterEvents(1);
+    g_scrollEndEvent = SDL_RegisterEvents(1);
+    return !video || initVideo();
+}
+
+bool Platform::initVideo() {
+    if (SDL_WasInit(SDL_INIT_VIDEO)) return true;
 #ifdef __linux__
     g_restrictedEgl = preferMesaEgl();
 #endif
-    // Without this, the first click on an unfocused window is swallowed — macOS delivers it.
-    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
-        SDL_Log("mayonnaise: SDL_Init failed: %s", SDL_GetError());
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        SDL_Log("mayonnaise: SDL video initialization failed: %s", SDL_GetError());
         return false;
     }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -447,14 +482,13 @@ bool Platform::init(const std::string& appId) {
     SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
-    g_wakeEvent = SDL_RegisterEvents(1);
-    g_dragEndEvent = SDL_RegisterEvents(1);
-    g_scrollEndEvent = SDL_RegisterEvents(1);
     if (void* display = waylandDisplay()) wayland::prepare(display);
     return true;
 }
 
-void Platform::shutdown() {
+void Platform::suspendVideo() {
+    if (!g_windows.empty()) return;
+    wayland::shutdown();
     for (auto*& c : g_cursors) {
         if (c) SDL_DestroyCursor(c);
         c = nullptr;
@@ -467,6 +501,17 @@ void Platform::shutdown() {
         SDL_Vulkan_UnloadLibrary();
         g_vulkanLoaded = false;
     }
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    g_api = GraphicsApi::OpenGL;
+#ifdef __linux__
+    if (g_restrictedEgl) unsetenv("__EGL_VENDOR_LIBRARY_FILENAMES");
+    g_restrictedEgl = false;
+    endVulkanDriverRestriction();
+#endif
+}
+
+void Platform::shutdown() {
+    suspendVideo();
     SDL_Quit();
 }
 

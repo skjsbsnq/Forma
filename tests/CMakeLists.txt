@@ -1,4 +1,4 @@
-add_executable(mayonnaise_tests test_main.cpp test_geometry.cpp test_text.cpp test_layout.cpp test_events.cpp test_widgets.cpp test_images.cpp test_settings.cpp test_fonts.cpp)
+add_executable(mayonnaise_tests test_main.cpp test_geometry.cpp test_text.cpp test_layout.cpp test_events.cpp test_widgets.cpp test_images.cpp test_settings.cpp test_fonts.cpp test_background.cpp)
 target_link_libraries(mayonnaise_tests PRIVATE mayonnaise::mayonnaise doctest::doctest mayonnaise_stb)
 # The library already compiles stb_image_write's implementation; tests only use the declarations.
 target_include_directories(mayonnaise_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
@@ -66,17 +66,21 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   mayonnaise_set_sanitizers(finder_volume_tests)
   add_test(NAME finder_volume_tests COMMAND finder_volume_tests)
   add_executable(finder_open_tests test_finder_open.cpp
+    test_finder_rename.cpp
+    test_finder_clipboard.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/file_clipboard.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/archives.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/applications.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/file_model.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/file_panels.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/panels.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/browser.cpp
+    ${PROJECT_SOURCE_DIR}/applications/finder/views.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/file_icons.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/file_ops.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/preview_cache.cpp)
   target_include_directories(finder_open_tests PRIVATE ${PROJECT_SOURCE_DIR}/applications/finder ${PROJECT_SOURCE_DIR}/src)
-  target_link_libraries(finder_open_tests PRIVATE mayonnaise::mayonnaise)
+  target_link_libraries(finder_open_tests PRIVATE mayonnaise::mayonnaise PkgConfig::FINDER_TEST_GIO SDL3::SDL3)
   mayonnaise_set_warnings(finder_open_tests)
   mayonnaise_set_sanitizers(finder_open_tests)
   add_test(NAME finder_open_tests COMMAND finder_open_tests)

@@ -1,5 +1,28 @@
 # Forma Finder
 
+## 重命名
+
+右键「重命名」、Enter 和 F2 在文件名处编辑；Enter 保存、Escape 取消，点击其他位置也会保存。菜单关闭时保留编辑框焦点。文件默认选中不含扩展名的部分，文件夹选中完整名称。
+
+属性里的铅笔按钮打开名称编辑框，按 Enter 或点击「重命名」保存。它也支持从空白区域打开属性后修改当前文件夹名称，并更新当前路径。同名或无效名称会显示错误；失败时保留名称编辑框。回收站中的项目禁止重命名。
+
+`finder_open_tests` 包含三种文件视图和属性入口的重命名回归测试，覆盖中文名称、扩展名、保存、取消、失焦提交、文件夹、空名称、路径分隔符及已占用的符号链接名称。完整窗口可用临时目录验证菜单关闭后的输入与提交：
+
+```sh
+scratch=$(mktemp -d)
+touch "$scratch/原名.txt"
+MAYO_DEMO='menu:原名.txt,clickrow:重命名,wait:0.3,key:enter,wait:0.3,input:新名,key:enter' \
+  XDG_CONFIG_HOME="$scratch/config" MAYO_SCREENSHOT="$scratch/renamed.png" MAYO_SCREENSHOT_DELAY=3 \
+  ./build/applications/finder/finder "$scratch"
+test -f "$scratch/新名.txt"
+```
+
+## 复制与剪切
+
+右键菜单和快捷键使用文件 URI 列表，并携带复制／剪切标记；切换目录后仍可粘贴，两个窗口之间也保留剪切语义。文件名中的中文、空格、百分号和换行按 URI 编码处理。
+
+Wayland 下，如果桌面剪贴板管理器接管数据后 SDL 无法读回剪贴板，使用 `wl-paste` 读取当前系统内容，避免回退到已失效的旧文件列表。Arch 包声明了 `wl-clipboard` 运行依赖。`finder_open_tests` 覆盖自身剪贴板读取、替换、清空及 URI 格式。
+
 ## 压缩包右键菜单
 
 选中 ZIP、RAR、7z、tar 等压缩包后，可直接使用「解压到此处」或「解压到…」。前者解压到压缩包所在目录，后者弹出文件夹选择器；取消选择不执行操作。支持多选压缩包，搜索或最近使用中的压缩包也按各自所在目录解压。

@@ -13,6 +13,8 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
+void testFinderRename(const fs::path& root);
+void testFinderClipboard();
 static void require(bool ok, const char* message) {
     if (!ok) { std::cerr << message << '\n'; std::exit(1); }
 }
@@ -31,6 +33,8 @@ int main(int argc, char**) {
     ::setenv("XDG_DATA_HOME", temp, 1);
     ::setenv("XDG_DATA_DIRS", temp, 1);
     ::setenv("XDG_CURRENT_DESKTOP", "Forma", 1);
+    testFinderRename(root);
+    testFinderClipboard();
     fs::create_directories(root / "applications");
     std::ofstream(root / "applications/test.desktop") << "[Desktop Entry]\nType=Application\nName=Test\nExec=/bin/true %f\nMimeType=text/plain;\n";
     const auto text = (root / "sample.txt").string();

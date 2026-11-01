@@ -236,13 +236,14 @@ void FileOps::deleteImmediately(std::vector<std::string> paths, Done done) {
 }
 
 std::string FileOps::rename(const std::string& path, const std::string& newName) {
-    if (newName.find('/') != std::string::npos || newName == "." || newName == "..") {
-        if (m_onError) m_onError("名称" + quoted(newName) + "不可用。名称不能包含“/”。");
+    if (newName.empty() || newName.find('\0') != std::string::npos || newName.find('/') != std::string::npos ||
+        newName == "." || newName == "..") {
+        if (m_onError) m_onError("名称不可为空、为“.”或“..”，也不能包含“/”或空字符。");
         return {};
     }
     const fs::path target = fs::path(path).parent_path() / newName;
     std::error_code ec;
-    if (fs::exists(target, ec)) {
+    if (fs::exists(fs::symlink_status(target, ec))) {
         if (m_onError) m_onError("名称" + quoted(newName) + "已被使用，请选择其他名称。");
         return {};
     }
