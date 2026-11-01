@@ -12,14 +12,14 @@ cd packaging/arch-portal
 makepkg -s
 ```
 
-`makepkg -s` 安装缺少的构建依赖，不安装生成的门户包。`FORMA_BUILD_JOBS=2 makepkg -s` 可降低并行构建内存用量。产物为 `xdg-desktop-portal-forma-6.8.0-1-x86_64.pkg.tar.zst`。
+`makepkg -s` 安装缺少的构建依赖，不安装生成的门户包。`FORMA_BUILD_JOBS=2 makepkg -s` 可降低并行构建内存用量。产物为 `xdg-desktop-portal-forma-6.8.0-3-x86_64.pkg.tar.zst`。
 
 构建运行 28 项明暗组件检查与 5 项独立 D-Bus 检查，不授予权限或切换当前服务。
 
 ## 安装与启用
 
 ```sh
-sudo pacman -U ./xdg-desktop-portal-forma-6.8.0-1-x86_64.pkg.tar.zst
+sudo pacman -U ./xdg-desktop-portal-forma-6.8.0-3-x86_64.pkg.tar.zst
 systemctl --user daemon-reload
 systemctl --user restart plasma-xdg-desktop-portal-kde.service xdg-desktop-portal.service
 ```
@@ -31,6 +31,15 @@ pacman 会提示与 `xdg-desktop-portal-kde` 冲突，确认移除官方包即�
 日志：`journalctl --user -u plasma-xdg-desktop-portal-kde.service -b`
 
 独立文件窗口预览：`forma-file-picker --preview`
+
+文件选择窗口会记住图标/列表视图、排序字段和方向，以及隐藏文件的显示状态。
+列表表头可点击切换排序，再次点击反转方向；空白处右键菜单、底部按钮和 `Ctrl+H` 均可切换隐藏文件。
+
+在有 X11/Xwayland 的会话中，从仓库根目录运行真实窗口回归检查（使用临时配置和测试文件）：
+
+```sh
+python tests/portal/picker_smoke.py packaging/arch-portal/src/build-forma/applications/portal/forma-file-picker
+```
 
 ## 恢复官方版本
 

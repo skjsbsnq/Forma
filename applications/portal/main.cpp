@@ -50,12 +50,21 @@ int main(int argc, char** argv) {
     int filterIndex = request["filterIndex"].toInt(0);
     if (filterIndex < 0 || filterIndex >= filters.size()) filterIndex = 0;
     App app("forma-file-picker", "io.github.Forma.FilePicker");
+    auto& prefs = app.settings();
+    bool listMode = prefs.getString("view", "icons") == "list";
     auto& window = app.createWindow({.title = request["title"].toString(save ? "存储" : "打开").toStdString(),
                                      .width = 960,
                                      .height = 640,
                                      .minWidth = 720,
                                      .minHeight = 460});
     auto browser = std::make_shared<finder::Browser>();
+    browser->showHidden = prefs.getBool("showHidden");
+    const auto sortBy = prefs.getString("sortBy", "name");
+    browser->sort.key = sortBy == "modified" ? finder::SortKey::Modified
+                        : sortBy == "size"   ? finder::SortKey::Size
+                        : sortBy == "kind"   ? finder::SortKey::Kind
+                                             : finder::SortKey::Name;
+    browser->sort.ascending = prefs.getBool("sortAscending", true);
     auto grid = std::make_shared<PickerFileView<finder::IconGridView>>(browser);
     auto scroll = ScrollView(Element(grid));
     grid->setScroller(scroll.node().get());
@@ -63,7 +72,7 @@ int main(int argc, char** argv) {
     auto rows = std::make_shared<PickerFileView<finder::ListRowsView>>(browser, listColumns);
     rows->setScroller(scroll.node().get());
     auto headerElement = Custom<finder::ListHeaderView>(browser, listColumns);
-    headerElement.setHidden(true);
+    headerElement.setHidden(!listMode);
     finder::PreviewCache previews(app, [&] {
         grid->invalidate();
         rows->invalidate();
@@ -109,9 +118,40 @@ int main(int argc, char** argv) {
         finder::sortEntries(browser->entries, browser->sort);
         grid->reload();
         rows->reload();
+        headerElement->invalidate();
         status.setText(error.empty() ? std::to_string(browser->entries.size()) + " 个项目" : error);
         filterLabel.setText(filters.isEmpty() ? "所有文件"
                                               : filters[filterIndex].toObject()["name"].toString().toStdString());
+    };
+    browser->sortChanged = [&] {
+        constexpr const char* kSortNames[] = {"name", "modified", "size", "kind"};
+        prefs.set("sortBy", kSortNames[static_cast<int>(browser->sort.key)]);
+        prefs.set("sortAscending", browser->sort.ascending);
+        reload();
+    };
+    auto hidden = Button("显示隐藏文件").style(ButtonStyle::Borderless);
+    auto updateHiddenLabel = [&] { hidden.setTitle(browser->showHidden ? "不显示隐藏文件" : "显示隐藏文件"); };
+    auto toggleHidden = [&] {
+        browser->showHidden = !browser->showHidden;
+        prefs.set("showHidden", browser->showHidden);
+        updateHiddenLabel();
+        reload();
+    };
+    hidden.onClick(toggleHidden);
+    updateHiddenLabel();
+    auto menu = std::make_shared<MenuView>(std::vector<MenuItem>{});
+    menu->setOnDismiss([&] {
+        app.post([&] {
+            auto* view = listMode ? static_cast<Widget*>(rows.get()) : static_cast<Widget*>(grid.get());
+            if (auto* host = view->host(); host && !host->focusedWidget()) host->setFocus(view, false);
+        });
+    });
+    browser->contextMenu = [&](Widget& from, Point at, bool) {
+        menu->setItems({MenuItem("显示隐藏文件", toggleHidden).setChecked(browser->showHidden).withShortcut("Ctrl+H")});
+        menu->setAnchorRect({at.x, at.y, 1, 1});
+        menu->setGap(2);
+        menu->showFrom(from);
+        if (auto* host = from.host()) host->setFocus(menu.get(), false);
     };
     navigate = [&](const std::string& path) {
         std::error_code ec;
@@ -222,11 +262,16 @@ int main(int argc, char** argv) {
         browser->selection.clear();
         reload();
     });
-    auto viewMode = SegmentedControl({Icon::Grid, Icon::List}, 0).onChange([&](int index) {
-        headerElement.setHidden(index == 0);
-        scroll->setContent(index == 0 ? std::static_pointer_cast<Widget>(grid)
-                                      : std::static_pointer_cast<Widget>(rows));
+    auto applyViewMode = [&] {
+        headerElement.setHidden(!listMode);
+        scroll->setContent(listMode ? std::static_pointer_cast<Widget>(rows) : std::static_pointer_cast<Widget>(grid));
+    };
+    auto viewMode = SegmentedControl({Icon::Grid, Icon::List}, listMode ? 1 : 0).onChange([&](int index) {
+        listMode = index == 1;
+        prefs.set("view", listMode ? "list" : "icons");
+        applyViewMode();
     });
+    applyViewMode();
     headerElement->onColumnsResized = [&] { rows->invalidate(); };
     accept.onClick(submit);
     name.onSubmit([&](const auto&) { submit(); });
@@ -239,6 +284,10 @@ int main(int argc, char** argv) {
         return true;
     });
     window.onKey([&](const KeyEvent& e) {
+        if (e.key == Key::H && hasModifier(e.modifiers, Modifiers::Ctrl)) {
+            toggleHidden();
+            return true;
+        }
         if (e.key == Key::Enter) {
             submit();
             return true;
@@ -266,10 +315,6 @@ int main(int argc, char** argv) {
     auto up = Button(Icon::ChevronLeft).style(ButtonStyle::Borderless).onClick([&] {
         navigate(finder::parentPath(browser->path));
     });
-    auto hidden = Button("隐藏文件").style(ButtonStyle::Borderless).onClick([&] {
-        browser->showHidden = !browser->showHidden;
-        reload();
-    });
     auto footer = HStack({filterPicker, Spacer(), Button("取消").onClick(cancel), accept}).spacing(12).padding(12, 20);
     auto filename = HStack({Label("存储为："), name}).spacing(12).padding(8, 20);
     filename.setHidden(!save);
@@ -282,7 +327,9 @@ int main(int argc, char** argv) {
     navigate(initial);
     if (browser->path.empty()) navigate(finder::homeDirectory());
     app.after(0, [&] {
-        auto* target = save ? static_cast<Widget*>(accept.node().get()) : static_cast<Widget*>(grid.get());
+        auto* target = save       ? static_cast<Widget*>(accept.node().get())
+                       : listMode ? static_cast<Widget*>(rows.get())
+                                  : static_cast<Widget*>(grid.get());
         if (target->host()) target->host()->setFocus(target, true);
     });
     return app.run();
