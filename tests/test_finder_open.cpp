@@ -175,6 +175,35 @@ int main(int argc, char**) {
         }
         return args;
     };
+    // Compression accepts ordinary files, directories and mixed selections, independently of MIME type.
+    require(finder::canCompressFiles({text}), "single file offers compression");
+    require(finder::canCompressFiles({folderStr}), "single folder offers compression");
+    require(finder::canCompressFiles({text, folderStr, zip}), "mixed selection offers compression");
+    require(!finder::canCompressFiles({}), "empty selection has no compression menu");
+    require(!finder::canCompressFiles({text, trashed}), "selection containing trash has no compression menu");
+    require(!finder::canCompressFiles({finder::trashFilesDirectory()}), "trash root cannot be compressed");
+    const auto missing = (root / "missing.txt").string();
+    require(!finder::canCompressFiles({missing}), "missing file has no compression menu");
+    const auto fifo = (root / "pipe").string();
+    require(::mkfifo(fifo.c_str(), 0600) == 0, "create special file");
+    require(!finder::canCompressFiles({fifo}), "special files have no compression menu");
+    require(finder::compressFiles({zip}).empty(), "single file compression launches Ark");
+    require(arkArgs(5) == std::vector<std::string>{"--add", "--dialog", "--changetofirstpath", "--", zip},
+            "compression prompts for archive options and preserves shell characters literally");
+    fs::remove(arkLog);
+    require(finder::compressFiles({folderStr}).empty(), "folder compression launches Ark");
+    require(arkArgs(5) == std::vector<std::string>{"--add", "--dialog", "--changetofirstpath", "--", folderStr},
+            "compression passes the selected folder");
+    fs::remove(arkLog);
+    const auto nestedText = (folder / "--nested.txt").string();
+    std::ofstream(nestedText) << "nested file\n";
+    require(finder::compressFiles({text, folderStr, zip, nestedText}).empty(), "mixed selection compression launches Ark");
+    require(arkArgs(8) == std::vector<std::string>{"--add", "--dialog", "--changetofirstpath", "--", text, folderStr, zip, nestedText},
+            "compression passes every selected item, including items from different directories");
+    fs::remove(arkLog);
+    require(!finder::compressFiles({text, trashed}).empty(), "compression rejects trash before launch");
+    require(!finder::compressFiles({missing}).empty(), "compression rejects missing files before launch");
+    require(!fs::exists(arkLog), "invalid selections never launch Ark");
     require(finder::extractArchives({zip}).empty(), "extract here launches Ark");
     require(arkArgs(5) == std::vector<std::string>{"--batch", "--destination", root.string(), "--", zip},
             "extract here uses the archive parent and preserves shell characters literally");
@@ -191,6 +220,7 @@ int main(int argc, char**) {
     require(!finder::extractArchives({zip}, text).empty(), "non-directory destination is rejected");
     require(!finder::extractArchives({text}).empty(), "ordinary file cannot launch extraction");
     fs::remove(ark);
+    require(!finder::compressFiles({text}).empty(), "missing Ark produces a visible compression error");
     require(!finder::extractArchives({zip}).empty(), "missing Ark produces a visible error");
     fs::remove_all(root);
 }

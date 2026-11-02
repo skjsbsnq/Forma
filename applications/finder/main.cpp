@@ -1208,8 +1208,16 @@ int main(int argc, char** argv) {
         items.push_back(MenuItem("打开", openSelection).withShortcut("Ctrl+O").disabled(trashed && !(first && first->isDir)));
         auto openWith = openWithItems();
         if (!openWith.empty()) items.push_back(MenuItem("打开方式").withSubmenu(std::move(openWith)).disabled(trashed));
-        if (canExtractArchives(paths)) {
-            items.push_back(MenuItem::separator());
+        const bool canCompress = canCompressFiles(paths);
+        const bool canExtract = canExtractArchives(paths);
+        if (canCompress || canExtract) items.push_back(MenuItem::separator());
+        if (canCompress) {
+            items.push_back(MenuItem("压缩…", [&, paths] {
+                if (demo) return;
+                if (const auto error = compressFiles(paths); !error.empty()) showAlert("无法压缩。", error);
+            }));
+        }
+        if (canExtract) {
             items.push_back(MenuItem("解压到此处", [&, paths] {
                 if (demo) return;
                 if (const auto error = extractArchives(paths); !error.empty()) showAlert("无法解压。", error);

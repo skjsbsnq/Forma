@@ -1,6 +1,6 @@
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-appstore-0.1.0-4-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-calculator-0.1.0-2-x86_64.pkg.tar.zst
-/home/wwt/文档/Forma/build-rename/packages/forma-finder-0.1.0-26-x86_64.pkg.tar.zst
+/home/wwt/文档/Forma/build-compression/packages/forma-finder-0.1.0-28-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-mail-0.2.0rc1-2-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-music-0.1.0-2-x86_64.pkg.tar.zst
 /home/wwt/文档/Forma/build-arch-memory/packages/forma-photos-0.1.0-2-x86_64.pkg.tar.zst

@@ -10,6 +10,26 @@
 
 namespace finder {
 
+bool canCompressFiles(const std::vector<std::string>& paths) {
+    return !paths.empty() && std::all_of(paths.begin(), paths.end(), [](const std::string& path) {
+        if (isInTrash(path) || path == trashFilesDirectory()) return false;
+        std::error_code ec;
+        const auto status = std::filesystem::status(path, ec);
+        return !ec && (std::filesystem::is_regular_file(status) || std::filesystem::is_directory(status));
+    });
+}
+
+std::string compressFiles(const std::vector<std::string>& paths) {
+    if (!canCompressFiles(paths)) return "请选择回收站以外的文件或文件夹。";
+    // --add alone starts a job without a filename; --dialog is required to ask for one.
+    // Start beside the first selected item, even in Search/Recents or a column view.
+    std::vector<std::string> command{"ark", "--add", "--dialog", "--changetofirstpath", "--"};
+    for (const auto& path : paths) command.push_back(std::filesystem::absolute(path).string());
+    std::string error;
+    if (!spawnDetachedProcess(command, &error)) return "无法启动 Ark，请确认已安装 ark。\n" + error;
+    return {};
+}
+
 bool canExtractArchives(const std::vector<std::string>& paths) {
     return !paths.empty() && std::all_of(paths.begin(), paths.end(), [](const std::string& path) {
         std::error_code ec;
