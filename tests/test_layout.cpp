@@ -31,6 +31,59 @@ TEST_CASE("Fullscreen window content occupies the hidden title bar") {
     CHECK(content->frame().y == 32);
 }
 
+TEST_CASE("Window traffic lights match NextKDE geometry and keep their actions") {
+    // Both appearances use the native NextKDE 14pt circles and 28pt pitch.
+    for (auto appearance : {Appearance::Light, Appearance::Dark}) {
+        const auto metrics = Theme::make(appearance).metrics;
+        CHECK(metrics.trafficLightSize == 14);
+        CHECK(metrics.trafficLightSpacing == 14);
+        CHECK(metrics.trafficLightBorderWidth == doctest::Approx(0.75f));
+    }
+
+    test::TestHost host;
+    auto root = std::make_shared<WindowRootView>();
+    auto toolbar = box(120, 24);
+    bool withToolbar = false;
+    SUBCASE("Plain title bar") {}
+    SUBCASE("Unified toolbar") {
+        root->setToolbar(toolbar);
+        withToolbar = true;
+    }
+    root->setWindowState(false, true, false);
+    host.attach(root);
+
+    const auto& titleBar = root->children().back();
+    REQUIRE_FALSE(titleBar->children().empty());
+    const auto& lights = titleBar->children().front();
+    const Rect group = lights->frame();
+    CHECK(group.size() == Size{70, 14});
+    CHECK(group.x == 19);  // Preserve the first circle's centre at x = 26.
+    CHECK(group.center().y == titleBar->frame().center().y);
+    if (withToolbar) CHECK(toolbar->frame().x >= group.right() + 16);
+
+    int closed = 0, minimized = 0, zoomed = 0;
+    root->onClose = [&] { ++closed; };
+    root->onMinimize = [&] { ++minimized; };
+    root->onZoom = [&] { ++zoomed; };
+    const auto click = [&](float x) {
+        const PointerEvent e{{x, group.center().y}, MouseButton::Left, 1, Modifiers::None};
+        host.dispatcher.pointerMove(e);
+        host.dispatcher.pointerDown(e);
+        host.dispatcher.pointerUp(e);
+    };
+    for (int i = 0; i < 3; ++i) click(group.x + 7 + static_cast<float>(i) * 28);
+    CHECK(closed == 1);
+    CHECK(minimized == 1);
+    CHECK(zoomed == 1);
+
+    // Widening the group must not turn the gaps into extra button hit targets.
+    click(group.x + 21);
+    click(group.x + 49);
+    CHECK(closed == 1);
+    CHECK(minimized == 1);
+    CHECK(zoomed == 1);
+}
+
 TEST_CASE("VStack stacks children with spacing and leading alignment") {
     auto a = box(100, 20);
     auto b = box(50, 30);

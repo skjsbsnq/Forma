@@ -118,9 +118,10 @@ struct ThemeColors {
 struct ThemeMetrics {
     float windowRadius = 16;
     float titlebarHeight = 52;     ///< unified title bar / toolbar height
-    float trafficLightSize = 12;
-    float trafficLightSpacing = 8;
-    float trafficLightInset = 24;  ///< from the left window edge (clear of the sidebar panel's corner)
+    float trafficLightSize = 14;   ///< NextKDE circle diameter in logical pixels
+    float trafficLightSpacing = 14;         ///< edge-to-edge gap; 28pt centre-to-centre pitch
+    float trafficLightBorderWidth = 0.75f;  ///< centred on the circle, like NextKDE's decoration
+    float trafficLightInset = 24;           ///< from the left window edge (clear of the sidebar panel's corner)
 
     float controlHeight = 24;
     float controlRadius = 7;

@@ -71,7 +71,14 @@ public:
             Rect r = light(i);
             Color fill = key || showGlyphs ? kFill[i] : (dark ? Color::white(0.18f) : Color::black(0.12f));
             if (isPressed() && m_pressedLight == i && m_overLight == i) fill = fill.lighter(-0.2f);
-            p.fillRoundedRect(r, r.width * 0.5f, fill, Color::black(dark ? 0.2f : 0.1f), 0.5f);
+            // Painter strokes inward; expand by half the pen width to match NextKDE's
+            // centred outline without changing the circle centres or hit targets.
+            const float borderWidth = t.metrics.trafficLightBorderWidth;
+            const Rect outline = r.outset(borderWidth * 0.5f);
+            // Lay the translucent outline over an opaque disc, rather than replacing
+            // its edge with translucent pixels (which makes the circle look smaller).
+            p.fillRoundedRect(outline, outline.width * 0.5f, fill);
+            p.strokeRoundedRect(outline, outline.width * 0.5f, Color::black(dark ? 0.2f : 0.1f), borderWidth);
             if (!showGlyphs) continue;
             const Point c = r.center();
             const float k = r.width * 0.22f;
