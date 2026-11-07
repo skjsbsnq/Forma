@@ -6,10 +6,11 @@
 
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <condition_variable>
-#include <deque>
 #include <cstdlib>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -22,6 +23,7 @@ std::atomic<mayo::App*> g_app{nullptr};
 std::atomic<bool> g_readOnly{false};
 GMainLoop* g_loop = nullptr;
 std::thread g_thread;
+std::function<void(const Key&, const WriteResult&)> g_writeError;
 
 // Background worker.
 std::mutex g_workMutex;
@@ -64,11 +66,12 @@ std::multimap<WatchKey, std::function<void()>>& watchers() {
 }
 
 void onSettingsChanged(GSettings* settings, const char* key, gpointer /*data*/) {
-    toUi([settings, k = std::string(key)] {
-        auto range = watchers().equal_range({settings, k});
+    toUi([settings, k = std::string(key ? key : "")] {
+        auto range = k.empty() ? std::pair{watchers().lower_bound({settings, {}}), watchers().end()}
+                               : watchers().equal_range({settings, k});
         // Copy first: a watcher may add another watcher (rebuilding a list).
         std::vector<std::function<void()>> fns;
-        for (auto it = range.first; it != range.second; ++it) fns.push_back(it->second);
+        for (auto it = range.first; it != range.second && it->first.settings == settings; ++it) fns.push_back(it->second);
         for (auto& fn : fns) fn();
     });
 }
@@ -78,17 +81,18 @@ GSettingsSchema* lookupSchema(const std::string& schema) {
     return source ? g_settings_schema_source_lookup(source, schema.c_str(), TRUE) : nullptr;
 }
 
-GSettings* settingsFor(const std::string& schema, const std::string& path) {
+GSettings* settingsFor(const std::string& schema, const std::string& path, GSettingsBackend* backend) {
     auto& cache = settingsCache();
-    const std::string id = schema + "|" + path;
+    const std::string id = schema + "|" + path + "|" + std::to_string(reinterpret_cast<std::uintptr_t>(backend));
     if (auto it = cache.find(id); it != cache.end()) return it->second;
     GSettings* s = nullptr;
     if (GSettingsSchema* sc = lookupSchema(schema)) {
         // A relocatable schema needs a path, a fixed one must not get one.
         const char* fixed = g_settings_schema_get_path(sc);
         if (fixed || !path.empty()) {
-            s = g_settings_new_full(sc, nullptr, fixed ? nullptr : path.c_str());
+            s = g_settings_new_full(sc, backend, fixed ? nullptr : path.c_str());
             g_signal_connect(s, "changed", G_CALLBACK(onSettingsChanged), nullptr);
+            g_signal_connect(s, "writable-changed", G_CALLBACK(onSettingsChanged), nullptr);
         }
         g_settings_schema_unref(sc);
     }
@@ -267,6 +271,7 @@ void stop() {
         g_loop = nullptr;
     }
     watchers().clear();
+    g_writeError = {};
 }
 
 void toUi(std::function<void()> fn) {
@@ -275,6 +280,7 @@ void toUi(std::function<void()> fn) {
 
 void setReadOnly(bool readOnly) { g_readOnly = readOnly; }
 bool readOnly() { return g_readOnly; }
+void setWriteErrorHandler(std::function<void(const Key&, const WriteResult&)> handler) { g_writeError = std::move(handler); }
 
 // GSettings ------------------------------------------------------------------------------------------
 
@@ -284,8 +290,9 @@ bool hasSchema(const std::string& schema) {
     return s != nullptr;
 }
 
-Key::Key(const std::string& schema, std::string key, const std::string& path) : m_key(std::move(key)) {
-    GSettings* s = settingsFor(schema, path);
+Key::Key(const std::string& schema, std::string key, const std::string& path, GSettingsBackend* backend)
+    : m_key(std::move(key)) {
+    GSettings* s = settingsFor(schema, path, backend);
     if (s && SchemaKey(s, m_key).key) m_settings = s;
 }
 
@@ -370,6 +377,7 @@ std::string Key::getText() const {
     switch (g_variant_classify(v.get())) {
         case G_VARIANT_CLASS_STRING: return g_variant_get_string(v.get(), nullptr);
         case G_VARIANT_CLASS_BOOLEAN: return g_variant_get_boolean(v.get()) ? "true" : "false";
+        case G_VARIANT_CLASS_ARRAY: return joinList(strv(v.get()));
         case G_VARIANT_CLASS_DOUBLE: {
             char buf[G_ASCII_DTOSTR_BUF_SIZE];
             g_ascii_formatd(buf, sizeof buf, "%g", g_variant_get_double(v.get()));
@@ -379,77 +387,185 @@ std::string Key::getText() const {
     }
 }
 
-void Key::setValue(GVariant* v) const {
-    Variant held = hold(v);
-    if (!held || g_readOnly) return;
-    if (m_backend) {
-        if (!m_backend->write) return;
-        std::string text;
-        switch (g_variant_classify(held.get())) {
-            case G_VARIANT_CLASS_STRING: text = g_variant_get_string(held.get(), nullptr); break;
-            case G_VARIANT_CLASS_BOOLEAN: text = g_variant_get_boolean(held.get()) ? "true" : "false"; break;
-            case G_VARIANT_CLASS_DOUBLE: {
-                char buf[G_ASCII_DTOSTR_BUF_SIZE];
-                g_ascii_formatd(buf, sizeof buf, "%.6g", g_variant_get_double(held.get()));
-                text = buf;
-                break;
+struct Key::WriteState {
+    bool pending = false;
+    bool writing = false;
+    std::vector<std::function<void(const Key&, const WriteResult&)>> observers;
+};
+
+std::shared_ptr<Key::WriteState> Key::makeWriteState() { return std::make_shared<WriteState>(); }
+bool Key::pending() const { return m_writeState->pending; }
+
+bool Key::writable() const {
+    if (gx::readOnly() || !available()) return false;
+    if (m_backend) return m_backend->write && (!m_backend->writable || m_backend->writable());
+    return g_settings_is_writable(m_settings, m_key.c_str());
+}
+
+void Key::watchWrite(std::function<void(const Key&, const WriteResult&)> fn) const {
+    m_writeState->observers.push_back(std::move(fn));
+}
+
+WriteResult Key::submit(std::function<WriteResult(WriteDone)> write, WriteDone done) const {
+    if (m_writeState->writing) {
+        auto result = WriteResult::failure("A settings change is still pending");
+        if (done) done(result);
+        return result;
+    }
+    auto finished = std::make_shared<std::optional<WriteResult>>();
+    auto finish = [key = *this, done = std::move(done), finished](WriteResult result) {
+        if (*finished) return;
+        *finished = result;
+        key.m_writeState->pending = false;
+        key.m_writeState->writing = false;
+        const auto observers = key.m_writeState->observers;
+        for (const auto& fn : observers) fn(key, result);
+        if (done) done(result);
+        else if (observers.empty() && !result.ok() && !result.pending() && g_writeError) g_writeError(key, result);
+    };
+    if (!available()) {
+        auto r = WriteResult::failure("This setting is not available on this system");
+        finish(r);
+        return r;
+    }
+    if (!writable()) {
+        auto r =
+            WriteResult::readOnly(gx::readOnly() ? "Settings are read-only" : "This setting is locked or not writable");
+        finish(r);
+        return r;
+    }
+    m_writeState->writing = true;
+    auto result = write(finish);
+    if (!result.pending())
+        finish(result);
+    else if (!*finished) {
+        // Synchronous writes never disable the field (and steal its editing focus) for one keystroke.
+        m_writeState->pending = true;
+        const auto observers = m_writeState->observers;
+        for (const auto& fn : observers) fn(*this, result);
+    }
+    return *finished ? **finished : result;
+}
+
+WriteResult Key::reject(std::string reason, WriteDone done) const {
+    return submit([reason = std::move(reason)](WriteDone) { return WriteResult::failure(reason); }, std::move(done));
+}
+
+WriteResult Key::setValue(GVariant* v, WriteDone done) const {
+    auto held = std::shared_ptr<GVariant>(hold(v).release(), VariantUnref{});
+    return submit(
+        [key = *this, held](WriteDone complete) {
+            if (!held) return WriteResult::failure("No value was supplied");
+            const std::string t = key.type();
+            if (!g_variant_is_of_type(held.get(), G_VARIANT_TYPE(t.c_str())))
+                return WriteResult::failure("Wrong value type for " + key.name());
+            if (key.m_backend) {
+                std::string text;
+                switch (g_variant_classify(held.get())) {
+                    case G_VARIANT_CLASS_STRING: text = g_variant_get_string(held.get(), nullptr); break;
+                    case G_VARIANT_CLASS_BOOLEAN: text = g_variant_get_boolean(held.get()) ? "true" : "false"; break;
+                    case G_VARIANT_CLASS_DOUBLE: {
+                        char buf[G_ASCII_DTOSTR_BUF_SIZE];
+                        g_ascii_formatd(buf, sizeof buf, "%.6g", g_variant_get_double(held.get()));
+                        text = buf;
+                        break;
+                    }
+                    case G_VARIANT_CLASS_ARRAY: text = joinList(strv(held.get())); break;
+                    case G_VARIANT_CLASS_INT32: text = std::to_string(g_variant_get_int32(held.get())); break;
+                    case G_VARIANT_CLASS_UINT32: text = std::to_string(g_variant_get_uint32(held.get())); break;
+                    case G_VARIANT_CLASS_INT64: text = std::to_string(g_variant_get_int64(held.get())); break;
+                    case G_VARIANT_CLASS_UINT64: text = std::to_string(g_variant_get_uint64(held.get())); break;
+                    default: return WriteResult::failure("Unsupported value type for " + key.name());
+                }
+                return key.m_backend->write(text, std::move(complete));
             }
-            case G_VARIANT_CLASS_ARRAY: text = joinList(strv(held.get())); break;
-            case G_VARIANT_CLASS_INT32: text = std::to_string(g_variant_get_int32(held.get())); break;
-            case G_VARIANT_CLASS_UINT32: text = std::to_string(g_variant_get_uint32(held.get())); break;
-            case G_VARIANT_CLASS_INT64: text = std::to_string(g_variant_get_int64(held.get())); break;
-            case G_VARIANT_CLASS_UINT64: text = std::to_string(g_variant_get_uint64(held.get())); break;
-            default: return;
-        }
-        m_backend->write(text);
-        return;
-    }
-    if (!m_settings) return;
-    g_settings_set_value(m_settings, m_key.c_str(), held.get());
+            SchemaKey schema(key.m_settings, key.m_key);
+            if (!schema.key || !g_settings_schema_key_range_check(schema.key, held.get()))
+                return WriteResult::failure("Value is outside the allowed range for " + key.name());
+            return g_settings_set_value(key.m_settings, key.m_key.c_str(), held.get())
+                       ? WriteResult{}
+                       : WriteResult::failure("GSettings rejected the change to " + key.name());
+        },
+        std::move(done));
 }
 
-void Key::set(bool v) const { setValue(g_variant_new_boolean(v)); }
+WriteResult Key::set(bool v, WriteDone done) const { return setValue(g_variant_new_boolean(v), std::move(done)); }
 
-void Key::setInt(std::int64_t v) const {
+WriteResult Key::setInt(std::int64_t v, WriteDone done) const {
     const std::string t = type();
-    if (t == "i") setValue(g_variant_new_int32(static_cast<gint32>(v)));
-    else if (t == "u") setValue(g_variant_new_uint32(static_cast<guint32>(std::max<std::int64_t>(0, v))));
-    else if (t == "x") setValue(g_variant_new_int64(v));
-    else if (t == "t") setValue(g_variant_new_uint64(static_cast<guint64>(std::max<std::int64_t>(0, v))));
-    else if (t == "n") setValue(g_variant_new_int16(static_cast<gint16>(v)));
-    else if (t == "q") setValue(g_variant_new_uint16(static_cast<guint16>(v)));
-    else if (t == "y") setValue(g_variant_new_byte(static_cast<guchar>(v)));
-    else if (t == "d") setValue(g_variant_new_double(static_cast<double>(v)));
+    GVariant* value = nullptr;
+    if (t == "i" && v >= G_MININT32 && v <= G_MAXINT32)
+        value = g_variant_new_int32(static_cast<gint32>(v));
+    else if (t == "u" && v >= 0 && v <= G_MAXUINT32)
+        value = g_variant_new_uint32(static_cast<guint32>(v));
+    else if (t == "x")
+        value = g_variant_new_int64(v);
+    else if (t == "t" && v >= 0)
+        value = g_variant_new_uint64(static_cast<guint64>(v));
+    else if (t == "n" && v >= G_MININT16 && v <= G_MAXINT16)
+        value = g_variant_new_int16(static_cast<gint16>(v));
+    else if (t == "q" && v >= 0 && v <= G_MAXUINT16)
+        value = g_variant_new_uint16(static_cast<guint16>(v));
+    else if (t == "y" && v >= 0 && v <= 255)
+        value = g_variant_new_byte(static_cast<guchar>(v));
+    else if (t == "d")
+        value = g_variant_new_double(static_cast<double>(v));
+    return value ? setValue(value, std::move(done)) : reject("Invalid integer value for " + name(), std::move(done));
 }
 
-void Key::setDouble(double v) const {
-    if (type() == "d") setValue(g_variant_new_double(v));
-    else setInt(std::llround(v));
+WriteResult Key::setDouble(double v, WriteDone done) const {
+    if (!std::isfinite(v)) return reject("Invalid numeric value for " + name(), std::move(done));
+    if (type() == "d") return setValue(g_variant_new_double(v), std::move(done));
+    if (v < static_cast<double>(G_MININT64) || v >= static_cast<double>(G_MAXINT64))
+        return reject("Invalid numeric value for " + name(), std::move(done));
+    return setInt(std::llround(v), std::move(done));
 }
 
-void Key::setString(const std::string& v) const { setValue(g_variant_new_string(v.c_str())); }
+WriteResult Key::setString(const std::string& v, WriteDone done) const {
+    if (v.find('\0') != std::string::npos || !g_utf8_validate(v.data(), static_cast<gssize>(v.size()), nullptr))
+        return reject("Invalid UTF-8 text for " + name(), std::move(done));
+    return setValue(g_variant_new_string(v.c_str()), std::move(done));
+}
 
-void Key::setStrv(const std::vector<std::string>& v) const {
+WriteResult Key::setStrv(const std::vector<std::string>& v, WriteDone done) const {
     std::vector<const char*> c;
-    for (const auto& s : v) c.push_back(s.c_str());
-    setValue(g_variant_new_strv(c.data(), static_cast<gssize>(c.size())));
-}
-
-void Key::setText(const std::string& text) const {
-    const std::string t = type();
-    if (t == "s") setString(text);
-    else if (t == "b") set(text == "true");
-    else if (t == "d") setDouble(g_ascii_strtod(text.c_str(), nullptr));
-    else if (!t.empty()) setInt(std::strtoll(text.c_str(), nullptr, 10));
-}
-
-void Key::reset() const {
-    if (g_readOnly) return;
-    if (m_backend) {
-        if (m_backend->write) m_backend->write(std::nullopt);
-        return;
+    for (const auto& s : v) {
+        if (s.find('\0') != std::string::npos || !g_utf8_validate(s.data(), static_cast<gssize>(s.size()), nullptr))
+            return reject("Invalid UTF-8 list item for " + name(), std::move(done));
+        c.push_back(s.c_str());
     }
-    if (m_settings) g_settings_reset(m_settings, m_key.c_str());
+    return setValue(g_variant_new_strv(c.data(), static_cast<gssize>(c.size())), std::move(done));
+}
+
+WriteResult Key::setText(const std::string& text, WriteDone done) const {
+    const std::string t = type();
+    if (t == "s") return setString(text, std::move(done));
+    if (t == "as") return setStrv(splitList(text), std::move(done));
+    if (t == "b") {
+        if (text != "true" && text != "false") return reject("Expected true or false for " + name(), std::move(done));
+        return set(text == "true", std::move(done));
+    }
+    char* end = nullptr;
+    if (t == "d") {
+        const double v = g_ascii_strtod(text.c_str(), &end);
+        if (!text.empty() && end == text.c_str() + text.size()) return setDouble(v, std::move(done));
+    } else {
+        errno = 0;
+        const auto v = std::strtoll(text.c_str(), &end, 10);
+        if (!text.empty() && end == text.c_str() + text.size() && errno != ERANGE) return setInt(v, std::move(done));
+    }
+    return reject("Invalid numeric value for " + name() + ": " + text, std::move(done));
+}
+
+WriteResult Key::reset(WriteDone done) const {
+    return submit(
+        [key = *this](WriteDone complete) {
+            if (key.m_backend) return key.m_backend->write(std::nullopt, std::move(complete));
+            g_settings_reset(key.m_settings, key.m_key.c_str());
+            Variant user(g_settings_get_user_value(key.m_settings, key.m_key.c_str()));
+            return !user ? WriteResult{} : WriteResult::failure("GSettings could not reset " + key.name());
+        },
+        std::move(done));
 }
 
 bool Key::isDefault() const {
@@ -607,7 +723,7 @@ void perform(GDBusConnection* bus, const char* name, const char* path, const cha
              GVariant* params, Reply done, int timeoutMs) {
     if (g_readOnly) {
         if (params) g_variant_unref(g_variant_ref_sink(params));
-        if (done) toUi([done] { done(nullptr, {}); });
+        if (done) toUi([done] { done(nullptr, "Settings are read-only"); });
         return;
     }
     callImpl(bus, name, path, iface, method, params, std::move(done), timeoutMs,
@@ -732,7 +848,7 @@ ProcessResult runSync(const std::vector<std::string>& argv) {
 
 void run(const std::vector<std::string>& argv, std::function<void(ProcessResult)> done, bool mutates) {
     if (mutates && g_readOnly) {
-        if (done) toUi([done] { done(ProcessResult{0, {}, {}}); });
+        if (done) toUi([done] { done(ProcessResult{-1, {}, "Settings are read-only"}); });
         return;
     }
     std::string error;
@@ -743,6 +859,20 @@ void run(const std::vector<std::string>& argv, std::function<void(ProcessResult)
         return;
     }
     g_subprocess_communicate_async(p, nullptr, nullptr, onRunDone, new RunData{std::move(done)});
+}
+
+WriteResult runWrite(const std::vector<std::string>& argv, WriteDone done) {
+    if (gx::readOnly()) return WriteResult::readOnly();
+    if (argv.empty()) return WriteResult::failure("No settings tool was supplied");
+    run(argv, [done = std::move(done), tool = argv.front()](ProcessResult result) {
+        if (done)
+            done(result.ok()
+                     ? WriteResult{}
+                     : WriteResult::failure(
+                           tool + ": " +
+                           (result.err.empty() ? "exited with status " + std::to_string(result.status) : result.err)));
+    });
+    return {WriteStatus::Pending, {}};
 }
 
 void stream(const std::vector<std::string>& argv, std::function<void(const std::string& line)> onLineFn) {

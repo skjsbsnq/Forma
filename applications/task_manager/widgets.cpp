@@ -112,6 +112,7 @@ void HistoryGraph::draw(Painter& p) {
                 double base = 0;
                 for (int s = 0; s < series; ++s) {
                     double v = valueAt(x + px * 0.5f, s);
+                    if (!std::isfinite(v)) break;  // unknown samples leave a gap, never a false zero
                     float y0 = in.bottom() - static_cast<float>(base / max) * in.height;
                     float y1 = in.bottom() - static_cast<float>(std::min(max, base + v) / max) * in.height;
                     base += v;
@@ -130,6 +131,7 @@ void HistoryGraph::draw(Painter& p) {
         for (int s = 0; s < series; ++s) {
             const Color col = colors[static_cast<size_t>(s) % colors.size()];
             Point prev{};
+            bool hasPrevious = false;
             for (int i = 0; i < n; ++i) {
                 double v = 0;
                 if (m_mode == Mode::Stacked) {
@@ -137,13 +139,18 @@ void HistoryGraph::draw(Painter& p) {
                 } else {
                     v = m_samples[static_cast<size_t>(i)][static_cast<size_t>(s)];
                 }
+                if (!std::isfinite(v)) {
+                    hasPrevious = false;
+                    continue;
+                }
                 float x = x0 + step * static_cast<float>(i);
                 float y = m_mode == Mode::Stacked ? in.bottom() - static_cast<float>(std::min(1.0, v / max)) * in.height
                           : s == 0             ? mid - static_cast<float>(std::min(1.0, v / max)) * in.height * 0.5f
                                                : mid + static_cast<float>(std::min(1.0, v / max)) * in.height * 0.5f;
                 Point pt{x, y};
-                if (i > 0) p.drawLine(prev, pt, col, 1.3f);
+                if (hasPrevious) p.drawLine(prev, pt, col, 1.3f);
                 prev = pt;
+                hasPrevious = true;
             }
             if (m_mode == Mode::Mirrored && s >= 1) break;
         }

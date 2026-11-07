@@ -147,6 +147,7 @@ private:
 // --- RenameField -----------------------------------------------------------------------------------
 
 bool RenameField::onKeyDown(const KeyEvent& e) {
+    if (isComposing()) return true;
     if (e.key == Key::Escape) {
         finish(false);
         return true;
@@ -188,8 +189,17 @@ std::string FileView::neighbour(const std::string& from, Key key) const {
     return {};
 }
 
+void FileView::resetClickSequence() {
+    m_lastClickItem.clear();
+    m_lastClickCount = 0;
+    m_plainPress = false;
+    m_openOnUp = false;
+}
+
 bool FileView::onPointerDown(const PointerEvent& e) {
     if (auto* h = host()) h->setFocus(this, false);
+    m_plainPress = false;
+    m_openOnUp = false;
     const std::string item = itemAt(e.position);
     m_leftPress = e.button == MouseButton::Left;
     m_downAt = e.position;
@@ -199,6 +209,7 @@ bool FileView::onPointerDown(const PointerEvent& e) {
     m_dragging = false;
     m_external = false;
     if (!ownsSelection()) {
+        resetClickSequence();
         activate(item);
         if (auto* h = host()) h->setFocus(this, false);
         if (e.button == MouseButton::Right && m_browser->contextMenu) m_browser->contextMenu(*this, e.position, !item.empty());
@@ -208,20 +219,22 @@ bool FileView::onPointerDown(const PointerEvent& e) {
     const bool ctrl = hasModifier(e.modifiers, Modifiers::Ctrl);
     const bool shift = hasModifier(e.modifiers, Modifiers::Shift);
     if (e.button == MouseButton::Right) {
+        resetClickSequence();
         if (!item.empty() && !b.isSelected(item)) b.select(item);
         if (item.empty() && !b.selection.empty()) b.select({});
         invalidate();
         if (b.contextMenu) b.contextMenu(*this, e.position, !item.empty());
         return true;
     }
-    if (e.button != MouseButton::Left) return true;
-    if (!item.empty() && e.clickCount >= 2) {
-        if (const FileEntry* entry = this->entry(item); entry && b.open) {
-            FileEntry copy = *entry;  // open() may reload the listing under us
-            b.open(copy);
-        }
+    if (e.button != MouseButton::Left) {
+        resetClickSequence();
         return true;
     }
+    if (e.modifiers != Modifiers::None || item.empty() || e.clickCount <= 1) resetClickSequence();
+    m_plainPress = e.modifiers == Modifiers::None && !item.empty() && e.clickCount > 0;
+    // SDL counts nearby clicks across items and modifier changes; only our own completed plain click counts.
+    m_openOnUp = m_plainPress && item == m_lastClickItem && m_lastClickCount > 0 &&
+                 e.clickCount == m_lastClickCount + 1;
     if (item.empty()) {
         if (!ctrl && !shift && !b.selection.empty()) b.select({});
         m_banding = true;
@@ -296,6 +309,7 @@ void FileView::onPointerMove(const PointerEvent& e) {
         return;
     }
     const Vec2 d = e.position - m_downAt;
+    if (m_leftPress && std::hypot(d.x, d.y) > 4) resetClickSequence();
     if (m_leftPress && !m_downItem.empty() && ownsSelection() && m_browser->isSelected(m_downItem) && std::hypot(d.x, d.y) > 4) {
         beginDrag(e.position);
         return;
@@ -304,27 +318,47 @@ void FileView::onPointerMove(const PointerEvent& e) {
 }
 
 void FileView::onPointerUp(const PointerEvent& e) {
+    const bool click = m_leftPress && m_plainPress && !m_dragging && !m_banding &&
+                       e.button == MouseButton::Left && e.modifiers == Modifiers::None &&
+                       !m_downItem.empty() && itemAt(e.position) == m_downItem;
+    const bool open = click && m_openOnUp;
+    const std::string item = m_downItem;
     m_leftPress = false;
     if (m_external) {
         // The drop happened in another app (or was cancelled); nothing to do here.
         m_external = false;
         m_dragging = false;
         m_collapseOnUp = false;
+        resetClickSequence();
         return;
     }
     if (m_dragging) {
         endDrag(e.position, hasModifier(e.modifiers, Modifiers::Ctrl));
-    } else if (m_collapseOnUp && !m_downItem.empty()) {
-        m_browser->select(m_downItem);
+    } else if (m_collapseOnUp && !item.empty()) {
+        m_browser->select(item);
     }
     m_collapseOnUp = false;
     if (m_banding) {
         m_banding = false;
         invalidate();
     }
+    if (click && !open) {
+        m_lastClickItem = item;
+        m_lastClickCount = e.clickCount;
+        m_openOnUp = false;
+    } else {
+        resetClickSequence();
+    }
+    if (open) {
+        if (const auto* selected = entry(item); selected && m_browser->open) {
+            FileEntry copy = *selected;  // open() may reload the listing under us
+            m_browser->open(copy);
+        }
+    }
 }
 
 void FileView::onPointerLeave() {
+    resetClickSequence();
     if (!m_hover.empty()) {
         m_hover.clear();
         invalidate();
@@ -426,6 +460,7 @@ std::string FileView::dropFolderAt(Point p) {
 }
 
 bool FileView::onKeyDown(const KeyEvent& e) {
+    resetClickSequence();
     if (handleKey(e)) return true;
     Browser& b = *m_browser;
     auto items = order();

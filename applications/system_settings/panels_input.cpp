@@ -26,9 +26,10 @@ std::string ms(float v) { return std::to_string(static_cast<int>(std::lround(v))
 /// Pointer acceleration as an on/off switch: "flat" is off, anything else on.
 FormRow accelerationRow(const std::string& title, const gx::Key& key) {
     auto t = Toggle("", key.getString() != "flat").onChange([key](bool on) { key.setString(on ? "default" : "flat"); });
-    key.watch([key, t]() mutable { t.setOn(key.getString() != "flat"); });
-    if (!key) t.disabled();
-    return FormRow(title, t, "Faster movements travel further");
+    return ui::boundRow(title, key, t, "Faster movements travel further",
+                        [weak = std::weak_ptr<ToggleView>(t.node())](const gx::Key& k, bool) {
+                            if (auto toggle = weak.lock()) toggle->setOn(k.getString() != "flat");
+                        });
 }
 
 /// Whether a touchpad is connected (libinput names them "... Touchpad").
@@ -612,8 +613,10 @@ namespace {
 FormRow largeTextRow() {
     gx::Key key(kInterface, "text-scaling-factor");
     auto t = Toggle("", key.getDouble(1) > 1.01).onChange([key](bool on) { key.setDouble(on ? 1.25 : 1.0); });
-    key.watch([key, t]() mutable { t.setOn(key.getDouble(1) > 1.01); });
-    return FormRow("Large Text", t, "Makes text 25% bigger");
+    return ui::boundRow("Large Text", key, t, "Makes text 25% bigger",
+                        [weak = std::weak_ptr<ToggleView>(t.node())](const gx::Key& k, bool) {
+                            if (auto toggle = weak.lock()) toggle->setOn(k.getDouble(1) > 1.01);
+                        });
 }
 
 }  // namespace

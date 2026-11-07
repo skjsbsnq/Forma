@@ -45,6 +45,7 @@ public:
     [[nodiscard]] float cornerRadiusValue() const;
 
 protected:
+    virtual void willDismiss() {}
     /// Draws the panel content (default: children).
     virtual void drawPanel(Painter& painter) { paintChildren(painter); }
 

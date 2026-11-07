@@ -20,6 +20,12 @@ struct Option {
 
 // Rows bound to a key: they write on change and follow changes made elsewhere. A key the system doesn't
 // have gives a disabled row.
+/// Bind a custom control without retaining it in the key cache. sync must capture widgets weakly.
+mayo::FormRow boundRow(const std::string& title, const gx::Key& key, const mayo::Element& control,
+                       const std::string& subtitle, std::function<void(const gx::Key&, bool force)> sync);
+/// Same lifecycle for a hand-built row; errors use the existing message popover on its control.
+void bindControl(const gx::Key& key, const mayo::Element& control,
+                 std::function<void(const gx::Key&, bool force)> sync);
 mayo::FormRow toggleRow(const std::string& title, const gx::Key& key, const std::string& subtitle = {},
                         bool invert = false);
 mayo::FormRow pickerRow(const std::string& title, const gx::Key& key, std::vector<Option> options,

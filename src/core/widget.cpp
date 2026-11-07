@@ -262,11 +262,13 @@ void Widget::setDisabled(bool disabled) {
     if (m_disabled == disabled) return;
     m_disabled = disabled;
     onEnabledChanged();
+    if (auto* h = host()) h->widgetStateChanged(this);
     invalidate();
 }
 void Widget::setHidden(bool hidden) {
     if (m_hidden == hidden) return;
     m_hidden = hidden;
+    if (auto* h = host()) h->widgetStateChanged(this);
     invalidateLayout();
 }
 void Widget::setOpacity(float opacity) {

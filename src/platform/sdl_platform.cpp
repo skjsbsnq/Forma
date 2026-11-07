@@ -612,6 +612,13 @@ bool translate(const SDL_Event& e, PlatformEvent& out) {
             out.window = e.pinch.windowID;
             out.scale = e.pinch.scale;
             return true;
+        case SDL_EVENT_TEXT_EDITING:
+            out.type = EventType::TextEditing;
+            out.window = e.edit.windowID;
+            out.text = e.edit.text ? e.edit.text : "";
+            out.editingStart = std::max(0, e.edit.start);
+            out.editingLength = std::max(0, e.edit.length);
+            return true;
         case SDL_EVENT_TEXT_INPUT:
             out.type = EventType::TextInput;
             out.window = e.text.windowID;

@@ -15,48 +15,29 @@ namespace fs = std::filesystem;
 using namespace mayo;
 
 namespace finder {
-
 namespace {
-
-std::string plural(size_t n, const char* what) {
-    return std::to_string(n) + (std::string(what) == "item" ? " 个项目" : " 个其他错误");
-}
-
 std::string quoted(const std::string& name) { return "“" + name + "”"; }
-
 std::string describe(const std::vector<std::string>& paths) {
-    return paths.size() == 1 ? quoted(fs::path(paths.front()).filename().string()) : plural(paths.size(), "item");
+    return paths.size() == 1 ? quoted(fs::path(paths.front()).filename().string())
+                             : std::to_string(paths.size()) + " 个项目";
 }
-
-/// rename(), falling back to copy + delete across file systems.
-bool moveItem(const std::string& from, const std::string& to, std::string& error) {
-    std::error_code ec;
-    fs::rename(from, to, ec);
-    if (!ec) return true;
-    if (ec != std::errc::cross_device_link) {
-        error = ec.message();
-        return false;
-    }
-    fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::copy_symlinks, ec);
-    if (ec) {
-        error = ec.message();
-        fs::remove_all(to, ec);
-        return false;
-    }
-    fs::remove_all(from, ec);
-    return true;
+transaction::Record movedRecord(const std::string& from, const std::string& to, bool shallowIdentity = false) {
+    transaction::Record record;
+    record.source = from;
+    record.target = to;
+    record.moved = true;
+    record.shallowIdentity = shallowIdentity;
+    record.targetStamp = transaction::stamp(to, !shallowIdentity);
+    return record;
 }
-
 }  // namespace
-
-// --- FileOps -----------------------------------------------------------------------------------------
 
 FileOps::FileOps(App& app, ErrorFn onError) : m_app(app), m_onError(std::move(onError)) {
     m_thread = std::thread([this] { worker(); });
 }
-
 FileOps::~FileOps() {
     *m_alive = false;
+    cancel();
     {
         std::lock_guard lock(m_mutex);
         m_stop = true;
@@ -64,14 +45,18 @@ FileOps::~FileOps() {
     m_cv.notify_all();
     m_thread.join();
 }
-
+void FileOps::cancel() {
+    for (const auto& control : m_controls) control->cancel = true;
+    m_cancelling = busy();
+    if (m_cancelling) m_status = "正在取消；等待安全收尾…";
+    if (*m_alive && onChanged) onChanged();
+}
 void FileOps::worker() {
     for (;;) {
         std::function<void()> task;
         {
             std::unique_lock lock(m_mutex);
             m_cv.wait(lock, [&] { return m_stop || !m_queue.empty(); });
-            // Pending work still runs on shutdown: half-finished moves are worse than a short wait.
             if (m_queue.empty()) return;
             task = std::move(m_queue.front());
             m_queue.pop_front();
@@ -79,26 +64,75 @@ void FileOps::worker() {
         task();
     }
 }
-
-void FileOps::run(std::string status, std::function<Result()> work, Done done) {
+void FileOps::run(std::string status, std::function<Result(transaction::Control&)> work, Done done) {
+    auto control = std::make_shared<transaction::Control>();
+    control->cancel = m_cancelling;
+    const auto id = ++m_nextTask;
     ++m_running;
-    m_status = std::move(status);
+    m_controls.push_back(control);
+    if (m_running == 1) {
+        m_status = status;
+        m_progress = {};
+        m_cancelling = false;
+    }
     if (onChanged) onChanged();
     {
         std::lock_guard lock(m_mutex);
-        m_queue.push_back([this, alive = m_alive, work = std::move(work), done = std::move(done)] {
-            Result result = work();
-            m_app.post([this, alive, result = std::move(result), done] {
+        m_queue.push_back([this, alive = m_alive, control, id, status, work = std::move(work), done = std::move(done)] {
+            m_app.post([this, alive, id, status] {
+                if (!*alive) return;
+                m_activeTask = id;
+                m_status = m_cancelling ? "正在取消；等待安全收尾…" : status;
+                m_progress = {};
+                if (onChanged) onChanged();
+            });
+            auto last = std::chrono::steady_clock::time_point{};
+            auto phase = transaction::Phase::Queued;
+            control->onProgress = [this, alive, id, &last, &phase](const transaction::Progress& progress) {
+                const auto now = std::chrono::steady_clock::now();
+                if (progress.phase == phase && now - last < std::chrono::milliseconds(80)) return;
+                last = now;
+                phase = progress.phase;
+                m_app.post([this, alive, id, progress] {
+                    if (!*alive || m_activeTask != id) return;
+                    m_progress = progress;
+                    if (onChanged) onChanged();
+                });
+            };
+            Result result;
+            try {
+                // Queued cancellation still delivers Done and updates busy, without touching the disk.
+                control->checkpoint();
+                result = work(*control);
+            } catch (const std::exception& e) {
+                if (std::string(e.what()) != "操作已取消") result.errors.push_back(e.what());
+            }
+            control->onProgress = {};
+            m_app.post([this, alive, control, result = std::move(result), done] {
                 if (!*alive) return;
                 --m_running;
-                if (m_running == 0) m_status.clear();
-                if (result.undo) m_undo.push_back(*result.undo);
+                std::erase(m_controls, control);
+                if (m_running == 0) {
+                    m_status.clear();
+                    m_progress = {};
+                    m_cancelling = false;
+                }
+                if (result.updatingUndo && !m_undo.empty()) {
+                    // Consume only successes; failed items (including half-restored replacements) remain.
+                    if (result.undo && !result.undo->items.empty())
+                        m_undo.back() = std::move(*result.undo);
+                    else
+                        m_undo.pop_back();
+                } else if (result.undo)
+                    m_undo.push_back(std::move(*result.undo));
                 if (m_undo.size() > 50) m_undo.erase(m_undo.begin());
                 if (!result.errors.empty() && m_onError) {
                     std::string msg = result.errors.front();
-                    if (result.errors.size() > 1) msg += "（另有 " + plural(result.errors.size() - 1, "more error") + "）";
+                    if (result.errors.size() > 1)
+                        msg += "（另有 " + std::to_string(result.errors.size() - 1) + " 个错误）";
                     m_onError(msg);
                 }
+                m_completedSources = std::move(result.sources);
                 if (done) done(result.paths);
                 if (onChanged) onChanged();
             });
@@ -106,233 +140,257 @@ void FileOps::run(std::string status, std::function<Result()> work, Done done) {
     }
     m_cv.notify_one();
 }
-
 void FileOps::copy(std::vector<std::string> sources, std::string folder, Done done) {
-    std::string status = "正在复制" + describe(sources) + "…";
-    run(std::move(status), [sources, folder] {
-        Result r;
-        Undo undo{Undo::Kind::Copy, {}, {}, {}, "撤销复制"};
-        for (const auto& src : sources) {
-            const std::string name = fs::path(src).filename().string();
-            // Same folder: "photo copy.jpg" (Duplicate); elsewhere a clash keeps both ("photo 2.jpg").
-            const std::string target = (fs::path(folder) / (parentPath(src) == folder ? copyName(folder, name)
-                                                                                      : uniqueName(folder, name)))
-                                           .string();
-            if (isInside(folder, src)) {
-                r.errors.push_back("无法将" + quoted(name) + "复制或移动到其自身中。");
-                continue;
-            }
-            std::error_code ec;
-            fs::copy(src, target, fs::copy_options::recursive | fs::copy_options::copy_symlinks, ec);
-            if (ec) {
-                r.errors.push_back("无法复制" + quoted(name) + ": " + ec.message() + ".");
-                continue;
-            }
-            r.paths.push_back(target);
-            undo.created.push_back(target);
-        }
-        if (!undo.created.empty()) r.undo = undo;
-        return r;
-    }, std::move(done));
+    transfer(std::move(sources), std::move(folder), false, false, std::move(done));
 }
-
 void FileOps::move(std::vector<std::string> sources, std::string folder, Done done) {
-    std::string status = "正在移动" + describe(sources) + "…";
-    run(std::move(status), [sources, folder] {
-        Result r;
-        Undo undo{Undo::Kind::Move, {}, {}, {}, "撤销移动"};
-        for (const auto& src : sources) {
-            const std::string name = fs::path(src).filename().string();
-            if (parentPath(src) == folder) continue;
-            if (isInside(folder, src)) {
-                r.errors.push_back("无法将" + quoted(name) + "复制或移动到其自身中。");
-                continue;
-            }
-            const std::string target = (fs::path(folder) / uniqueName(folder, name)).string();
-            std::string error;
-            if (!moveItem(src, target, error)) {
-                r.errors.push_back("无法移动" + quoted(name) + ": " + error + ".");
-                continue;
-            }
-            r.paths.push_back(target);
-            undo.moves.emplace_back(src, target);
-        }
-        if (!undo.moves.empty()) r.undo = undo;
-        return r;
-    }, std::move(done));
+    transfer(std::move(sources), std::move(folder), true, false, std::move(done));
 }
-
+void FileOps::transfer(std::vector<std::string> sources, std::string folder, bool move, bool replace, Done done,
+                       std::vector<Replacement> replacements) {
+    const std::string status = std::string(move ? "正在移动" : "正在复制") + describe(sources) + "…";
+    run(
+        status,
+        [sources, folder, move, replace, replacements](transaction::Control& control) {
+            Result result;
+            Undo undo{{}, replace ? "撤销替换" : move ? "撤销移动" : "撤销复制"};
+            for (const auto& source : sources) {
+                if (control.cancel) break;
+                const auto name = fs::path(source).filename().string();
+                if (move && parentPath(source) == folder) {
+                    result.paths.push_back(source);
+                    result.sources.push_back(source);
+                    continue;
+                }
+                const auto targetName = parentPath(source) == folder ? copyName(folder, name)
+                                        : replace                    ? name
+                                                                     : uniqueName(folder, name);
+                const auto target = (fs::path(folder) / targetName).string();
+                const auto old = std::find_if(replacements.begin(), replacements.end(),
+                                              [&](const Replacement& item) { return item.target == target; });
+                const bool doReplace = replace && old != replacements.end() && parentPath(source) != folder;
+                const auto expected = doReplace ? std::optional<transaction::Identity>(old->identity) : std::nullopt;
+                auto outcome = transaction::transfer(source, target, move, doReplace, control, expected);
+                // Only complete moves count as clipboard successes. Incomplete copies remain visible on reload.
+                if (outcome.committed && (!move || outcome.sourceRemoved)) {
+                    result.paths.push_back(target);
+                    result.sources.push_back(source);
+                }
+                if (outcome.record) undo.items.push_back(std::move(*outcome.record));
+                if (!outcome.error.empty() && !outcome.cancelled)
+                    result.errors.push_back("无法完成" + quoted(name) + "：" + outcome.error);
+                if (outcome.cancelled) break;
+            }
+            if (!undo.items.empty()) result.undo = std::move(undo);
+            return result;
+        },
+        std::move(done));
+}
 void FileOps::trash(std::vector<std::string> paths, Done done) {
-    std::string status = "正在移动" + describe(paths) + "到回收站…";
-    run(std::move(status), [paths] {
-        Result r;
-        Undo undo{Undo::Kind::Trash, {}, {}, {}, "撤销移到回收站"};
-        for (const auto& p : paths) {
-            std::string error;
-            if (auto item = moveToTrash(p, &error)) {
-                undo.trashed.push_back(*item);
-                r.paths.push_back(item->trashed);
-            } else {
-                r.errors.push_back("无法移动" + quoted(fs::path(p).filename().string()) + "到回收站：" + error + ".");
+    run(
+        "正在移动" + describe(paths) + "到回收站…",
+        [paths](transaction::Control& control) {
+            Result result;
+            Undo undo{{}, "撤销移到回收站"};
+            for (const auto& path : paths) {
+                if (control.cancel) break;
+                control.report(transaction::Phase::Committing, path);
+                std::string error;
+                if (auto item = moveToTrash(path, &error)) {
+                    undo.items.push_back(movedRecord(item->original, item->trashed));
+                    result.paths.push_back(item->trashed);
+                } else
+                    result.errors.push_back("无法移到回收站：" + error);
             }
-        }
-        if (!undo.trashed.empty()) r.undo = undo;
-        return r;
-    }, std::move(done));
+            if (!undo.items.empty()) result.undo = std::move(undo);
+            return result;
+        },
+        std::move(done));
 }
-
-void FileOps::putBack(std::vector<std::string> trashedPaths, Done done) {
-    run("正在还原" + describe(trashedPaths) + "…", [trashedPaths] {
-        Result r;
-        Undo undo{Undo::Kind::Move, {}, {}, {}, "撤销还原"};
-        for (const auto& p : trashedPaths) {
-            auto original = trashOriginalPath(p);
-            const std::string name = fs::path(p).filename().string();
-            if (!original) {
-                r.errors.push_back("无法确定" + quoted(name) + "的原始位置。");
-                continue;
+void FileOps::putBack(std::vector<std::string> paths, Done done) {
+    run(
+        "正在还原" + describe(paths) + "…",
+        [paths](transaction::Control& control) {
+            Result result;
+            Undo undo{{}, "撤销还原"};
+            for (const auto& path : paths) {
+                if (control.cancel) break;
+                auto original = trashOriginalPath(path);
+                if (!original) {
+                    result.errors.push_back("无法确定原始位置：" + path);
+                    continue;
+                }
+                // Do not recreate removed ancestors or silently pick a new original location.
+                auto outcome = transaction::transfer(path, *original, true, false, control);
+                if (outcome.record) undo.items.push_back(std::move(*outcome.record));
+                if (outcome.committed && outcome.sourceRemoved) {
+                    result.paths.push_back(*original);
+                    const fs::path info = fs::path(path).parent_path().parent_path() / "info" /
+                                          (fs::path(path).filename().string() + ".trashinfo");
+                    (void)::unlink(info.c_str());
+                }
+                if (!outcome.error.empty() && !outcome.cancelled) result.errors.push_back("无法还原：" + outcome.error);
             }
-            std::error_code ec;
-            const fs::path dest(*original);
-            fs::create_directories(dest.parent_path(), ec);
-            const std::string target = (dest.parent_path() / uniqueName(dest.parent_path().string(), dest.filename().string())).string();
-            std::string error;
-            if (!moveItem(p, target, error)) {
-                r.errors.push_back("无法还原" + quoted(name) + ": " + error + ".");
-                continue;
-            }
-            const fs::path info = fs::path(p).parent_path().parent_path() / "info" / (name + ".trashinfo");
-            fs::remove(info, ec);
-            r.paths.push_back(target);
-        }
-        return r;
-    }, std::move(done));
+            if (!undo.items.empty()) result.undo = std::move(undo);
+            return result;
+        },
+        std::move(done));
 }
-
 void FileOps::emptyTrash(Done done) {
-    m_undo.erase(std::remove_if(m_undo.begin(), m_undo.end(), [](const Undo& u) { return u.kind == Undo::Kind::Trash; }),
-                 m_undo.end());
-    run("正在清空回收站…", [] {
-        finder::emptyTrash();
-        return Result{};
-    }, std::move(done));
-}
-
-void FileOps::deleteImmediately(std::vector<std::string> paths, Done done) {
-    run("正在删除" + describe(paths) + "…", [paths] {
-        Result r;
-        for (const auto& p : paths) {
+    // Preserve undo records until actual deletion; stale records fail identity checks without data loss.
+    run(
+        "正在清空回收站…",
+        [](transaction::Control& control) {
+            Result result;
             std::error_code ec;
-            fs::remove_all(p, ec);
-            if (ec) {
-                r.errors.push_back("无法删除" + quoted(fs::path(p).filename().string()) + ": " + ec.message() + ".");
-                continue;
+            const fs::path files(trashFilesDirectory());
+            fs::directory_iterator it(files, ec);
+            if (ec && ec != std::errc::no_such_file_or_directory) result.errors.push_back(ec.message());
+            std::vector<fs::path> paths;
+            for (; !ec && it != fs::directory_iterator(); it.increment(ec)) {
+                if (control.cancel) break;
+                paths.push_back(it->path());
             }
-            const fs::path info = fs::path(p).parent_path().parent_path() / "info" / (fs::path(p).filename().string() + ".trashinfo");
-            fs::remove(info, ec);
-        }
-        return r;
-    }, std::move(done));
+            if (ec) result.errors.push_back(ec.message());
+            // A recovery quarantine created after this snapshot is never fed back into permanent deletion.
+            for (const auto& path : paths) {
+                if (control.cancel) break;
+                control.report(transaction::Phase::RemovingSource, path.string());
+                try {
+                    transaction::removeSource(path.string(), transaction::stamp(path.string()), control);
+                } catch (const std::exception& e) {
+                    result.errors.push_back(e.what());
+                    continue;
+                }
+                fs::remove(files.parent_path() / "info" / (path.filename().string() + ".trashinfo"), ec);
+                if (ec) {
+                    result.errors.push_back(ec.message());
+                    ec.clear();
+                }
+            }
+            return result;
+        },
+        std::move(done));
 }
-
+void FileOps::deleteImmediately(std::vector<std::string> paths, Done done) {
+    run(
+        "正在删除" + describe(paths) + "…",
+        [paths](transaction::Control& control) {
+            Result result;
+            for (const auto& path : paths) {
+                if (control.cancel) break;
+                if (!isInTrash(path)) {
+                    result.errors.push_back("永久删除只允许用于回收站中的项目");
+                    continue;
+                }
+                control.report(transaction::Phase::RemovingSource, path);
+                std::error_code ec;
+                try {
+                    transaction::removeSource(path, transaction::stamp(path), control);
+                } catch (const std::exception& e) {
+                    result.errors.push_back("无法删除：" + std::string(e.what()));
+                    continue;
+                }
+                const auto info = fs::path(path).parent_path().parent_path() / "info" /
+                                  (fs::path(path).filename().string() + ".trashinfo");
+                fs::remove(info, ec);
+                if (ec) result.errors.push_back(ec.message());
+            }
+            return result;
+        },
+        std::move(done));
+}
 std::string FileOps::rename(const std::string& path, const std::string& newName) {
+    if (busy()) {
+        if (m_onError) m_onError("请先等待当前文件操作完成。");
+        return {};
+    }
     if (newName.empty() || newName.find('\0') != std::string::npos || newName.find('/') != std::string::npos ||
         newName == "." || newName == "..") {
         if (m_onError) m_onError("名称不可为空、为“.”或“..”，也不能包含“/”或空字符。");
         return {};
     }
-    const fs::path target = fs::path(path).parent_path() / newName;
-    std::error_code ec;
-    if (fs::exists(fs::symlink_status(target, ec))) {
-        if (m_onError) m_onError("名称" + quoted(newName) + "已被使用，请选择其他名称。");
+    const auto target = (fs::path(path).parent_path() / newName).string();
+    try {
+        const auto expected = transaction::stamp(path, false);
+        transaction::verifiedRename(path, target, expected, false);
+        m_undo.push_back({{movedRecord(path, target, true)}, "撤销重命名"});
+    } catch (const std::exception& e) {
+        if (m_onError) m_onError("无法重命名：" + std::string(e.what()));
         return {};
     }
-    fs::rename(path, target, ec);
-    if (ec) {
-        if (m_onError) m_onError("无法重命名" + quoted(fs::path(path).filename().string()) + ": " + ec.message() + ".");
-        return {};
-    }
-    m_undo.push_back({Undo::Kind::Rename, {{path, target.string()}}, {}, {}, "撤销重命名"});
     if (onChanged) onChanged();
-    return target.string();
+    return target;
 }
-
 std::string FileOps::newFolder(const std::string& folder) {
-    const fs::path target = fs::path(folder) / uniqueName(folder, "未命名文件夹");
-    std::error_code ec;
-    fs::create_directory(target, ec);
-    if (ec) {
-        if (m_onError) m_onError("无法在此处创建文件夹：" + ec.message() + ".");
+    if (busy()) {
+        if (m_onError) m_onError("请先等待当前文件操作完成。");
         return {};
     }
-    m_undo.push_back({Undo::Kind::NewFolder, {}, {}, {target.string()}, "撤销新建文件夹"});
+    const auto target = (fs::path(folder) / uniqueName(folder, "未命名文件夹")).string();
+    std::error_code ec;
+    if (!fs::create_directory(target, ec)) {
+        if (m_onError) m_onError("无法创建文件夹：" + (ec ? ec.message() : std::string("名称已被其他项目使用")));
+        return {};
+    }
+    transaction::Record record;
+    record.target = target;
+    record.targetStamp = transaction::stamp(target);
+    m_undo.push_back({{std::move(record)}, "撤销新建文件夹"});
     if (onChanged) onChanged();
-    return target.string();
+    return target;
 }
-
 void FileOps::folderSize(const std::string& path, std::function<void(std::uintmax_t, size_t)> done) {
-    std::lock_guard lock(m_mutex);
-    m_queue.push_back([this, alive = m_alive, path, done = std::move(done)] {
-        std::uintmax_t bytes = 0;
-        size_t items = 0;
-        std::error_code ec;
-        for (fs::recursive_directory_iterator it(path, fs::directory_options::skip_permission_denied, ec), end;
-             it != end; it.increment(ec)) {
-            if (ec) break;
-            ++items;
-            if (it->is_regular_file(ec) && !it->is_symlink(ec)) bytes += it->file_size(ec);
-        }
-        m_app.post([alive, done, bytes, items] {
-            if (*alive) done(bytes, items);
-        });
-    });
-    m_cv.notify_one();
+    run("正在计算文件夹大小…",
+        [path, done, this](transaction::Control& control) {
+            std::uintmax_t bytes = 0;
+            size_t items = 0;
+            std::error_code ec;
+            for (fs::recursive_directory_iterator it(path, fs::directory_options::skip_permission_denied, ec), end;
+                 !ec && it != end && !control.cancel; it.increment(ec)) {
+                ++items;
+                if (it->is_regular_file(ec) && !it->is_symlink(ec)) bytes += it->file_size(ec);
+            }
+            if (!control.cancel)
+                m_app.post([alive = m_alive, done, bytes, items] {
+                    if (*alive) done(bytes, items);
+                });
+            return Result{};
+        },
+        {});
 }
-
 std::string FileOps::undoTitle() const { return m_undo.empty() ? "撤销" : m_undo.back().title; }
-
 void FileOps::undo(Done done) {
-    if (m_undo.empty()) return;
-    Undo u = m_undo.back();
-    m_undo.pop_back();
-    run("正在撤销…", [u] {
-        Result r;
-        std::string error;
-        switch (u.kind) {
-            case Undo::Kind::Rename:
-            case Undo::Kind::Move:
-                for (const auto& [from, to] : u.moves) {
-                    if (moveItem(to, from, error)) r.paths.push_back(from);
-                    else r.errors.push_back("无法撤销：" + error + ".");
-                }
-                break;
-            case Undo::Kind::Copy:
-                // The Finder undoes a copy by moving the copies to the Trash.
-                for (const auto& p : u.created) {
-                    if (!moveToTrash(p, &error)) r.errors.push_back("无法撤销：" + error + ".");
-                }
-                break;
-            case Undo::Kind::Trash:
-                for (const auto& item : u.trashed) {
-                    std::error_code ec;
-                    fs::create_directories(fs::path(item.original).parent_path(), ec);
-                    if (moveItem(item.trashed, item.original, error)) {
-                        fs::remove(item.infoFile, ec);
-                        r.paths.push_back(item.original);
-                    } else {
-                        r.errors.push_back("无法还原" + quoted(fs::path(item.original).filename().string()) + ": " + error + ".");
+    if (!canUndo()) return;
+    const Undo saved = m_undo.back();
+    run(
+        "正在撤销…",
+        [saved](transaction::Control& control) {
+            Result result;
+            result.updatingUndo = true;
+            Undo remaining{{}, saved.title};
+            for (auto item : saved.items) {
+                std::string error;
+                if (control.cancel || !transaction::undo(item, control, error)) {
+                    remaining.items.push_back(std::move(item));
+                    if (!error.empty() && error != "操作已取消") result.errors.push_back("无法撤销：" + error);
+                } else {
+                    if (item.moved)
+                        result.paths.push_back(item.source);
+                    else if (saved.title == "撤销替换")
+                        result.paths.push_back(item.target);
+                    // Clean metadata only after its tracked object has successfully left the Trash.
+                    if (isInTrash(item.target)) {
+                        const auto info = fs::path(item.target).parent_path().parent_path() / "info" /
+                                          (fs::path(item.target).filename().string() + ".trashinfo");
+                        (void)::unlink(info.c_str());
                     }
                 }
-                break;
-            case Undo::Kind::NewFolder:
-                for (const auto& p : u.created) {
-                    std::error_code ec;
-                    if (!fs::remove(p, ec) && !moveToTrash(p, &error)) r.errors.push_back("无法撤销：" + error + ".");
-                }
-                break;
-        }
-        return r;
-    }, std::move(done));
+            }
+            if (!remaining.items.empty()) result.undo = std::move(remaining);
+            return result;
+        },
+        std::move(done));
 }
 
 // --- FolderWatcher -------------------------------------------------------------------------------------
@@ -347,7 +405,8 @@ FolderWatcher::~FolderWatcher() {
     *m_alive = false;
     if (m_wake >= 0) {
         std::uint64_t one = 1;
-        (void)::write(m_wake, &one, sizeof one);
+        const auto written = ::write(m_wake, &one, sizeof one);
+        (void)written;
     }
     if (m_thread.joinable()) m_thread.join();
     if (m_fd >= 0) ::close(m_fd);
@@ -419,10 +478,9 @@ void Searcher::start(const std::string& folder, const std::string& query, bool s
             const bool hidden = !name.empty() && name[0] == '.';
             if (it->is_directory(ec) && !it->is_symlink(ec)) {
                 const std::string p = it->path().string();
-                // Skip hidden trees and the kernel's pseudo file systems.
-                if ((hidden && !showHidden) || p == "/proc" || p == "/sys" || p == "/dev" || p == "/run" || it.depth() > 14) {
+                if ((hidden && !showHidden) || p == "/proc" || p == "/sys" || p == "/dev" || p == "/run" ||
+                    it.depth() > 14)
                     it.disable_recursion_pending();
-                }
             }
             if (hidden && !showHidden) continue;
             if (!containsNoCase(name, query)) continue;
@@ -430,7 +488,8 @@ void Searcher::start(const std::string& folder, const std::string& query, bool s
                 batch.push_back(std::move(*e));
                 if (++found >= kMaxResults) break;
             }
-            if (batch.size() >= 200 || std::chrono::steady_clock::now() - last > std::chrono::milliseconds(120)) flush();
+            if (batch.size() >= 200 || std::chrono::steady_clock::now() - last > std::chrono::milliseconds(120))
+                flush();
         }
         flush();
         m_app.post([this, cancelled, onFinished] {
@@ -440,5 +499,4 @@ void Searcher::start(const std::string& folder, const std::string& query, bool s
         });
     });
 }
-
 }  // namespace finder

@@ -44,8 +44,16 @@ enum class Reload {
 /// Nested groups are written like the file does: "Containments][1][Wallpaper".
 [[nodiscard]] std::optional<std::string> read(const std::string& file, const std::string& group, const std::string& key);
 /// nullopt removes the entry (back to the default). Skipped in read-only mode.
-void write(const std::string& file, const std::string& group, const std::string& key,
-           const std::optional<std::string>& value, Reload reload = Reload::None);
+gx::WriteResult write(const std::string& file, const std::string& group, const std::string& key,
+                      const std::optional<std::string>& value, Reload reload = Reload::None);
+struct Change {
+    std::string group;
+    std::string key;
+    std::optional<std::string> value;
+};
+/// Commit related entries atomically; failure leaves every cached value and line unchanged.
+gx::WriteResult writeEntries(const std::string& file, const std::vector<Change>& changes, Reload reload = Reload::None);
+[[nodiscard]] bool writable(const std::string& file, const std::string& group, const std::string& key);
 /// `fn` runs when the entry changes, from this app or any other.
 void watch(const std::string& file, const std::string& group, const std::string& key, std::function<void()> fn);
 /// Group names in the user's file, in file order.
@@ -69,7 +77,7 @@ void reload(Reload r);
 /// read from the file.
 [[nodiscard]] gx::Key appliedKey(const std::string& file, const std::string& group, const std::string& key,
                                  const std::string& type, const std::string& fallback,
-                                 std::function<void(const std::string& value)> apply);
+                                 std::function<gx::WriteResult(const std::string& value, gx::WriteDone)> apply);
 
 /// KConfig value escaping (\s, \t, \n, \\, \xNN).
 [[nodiscard]] std::string unescape(const std::string& raw);

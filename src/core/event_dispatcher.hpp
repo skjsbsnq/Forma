@@ -14,7 +14,7 @@ namespace mayo {
 
 class EventDispatcher {
 public:
-    void setRoot(std::shared_ptr<Widget> root) { m_root = std::move(root); }
+    void setRoot(std::shared_ptr<Widget> root);
     [[nodiscard]] Widget* root() const { return m_root.get(); }
 
     /// Overlays are modal: they get input first, and a press outside the topmost dismisses it.
@@ -33,6 +33,10 @@ public:
     /// Returns whether anything (widget, Tab navigation, the unhandled-key hook, overlay Escape) used it.
     bool keyDown(const KeyEvent& e);
     void textInput(const TextInputEvent& e);
+    void textEditing(const TextEditingEvent& e);
+    void cancelComposition();
+    /// Clears unavailable focus and advances safely; returns whether the old focus was invalid.
+    bool validateFocus();
 
     void setFocus(Widget* widget, bool visible);
     [[nodiscard]] Widget* focused() const;
@@ -54,11 +58,18 @@ public:
 
 private:
     [[nodiscard]] bool attached(const Widget* w) const;
+    [[nodiscard]] bool inFocusScope(const Widget* w) const;
+    [[nodiscard]] bool validFocus(const Widget* w) const;
     void updateHover(Widget* target);
     void collectFocusable(Widget* w, std::vector<Widget*>& out) const;
 
     std::shared_ptr<Widget> m_root;
     std::vector<std::shared_ptr<Widget>> m_overlays;
+    struct SavedFocus {
+        std::weak_ptr<Widget> widget;
+        bool visible = false;
+    };
+    std::vector<SavedFocus> m_overlayFocus;
     std::vector<std::weak_ptr<Widget>> m_hoverPath;  // root ... deepest
     std::weak_ptr<Widget> m_captured;
     std::weak_ptr<Widget> m_focused;

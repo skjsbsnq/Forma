@@ -88,7 +88,10 @@ public:
     void onPointerLeave() override;
     bool onKeyDown(const mayo::KeyEvent& e) override;
     bool onTextInput(const mayo::TextInputEvent& e) override;
-    void onFocusChanged(bool) override { invalidate(); }
+    void onFocusChanged(bool focused) override {
+        if (!focused) resetClickSequence();
+        invalidate();
+    }
     void drawOverlay(mayo::Painter& p) override;
     void arrangeContent(const mayo::Rect& content) override;
     std::string dropFolderAt(mayo::Point p) override;
@@ -103,7 +106,10 @@ public:
     /// Scrolls so the item is visible.
     void reveal(const std::string& path, bool animated = true);
     /// Entries changed; drop cached layout.
-    virtual void reload() { invalidateLayout(); }
+    virtual void reload() {
+        resetClickSequence();
+        invalidateLayout();
+    }
 
 protected:
     /// Items in visual order (for ranges, arrows and type-select).
@@ -127,6 +133,7 @@ protected:
     [[nodiscard]] bool emphasized() const;  ///< focused in the key window: accent selection
     [[nodiscard]] mayo::Color selectionColor() const;
     [[nodiscard]] mayo::Icon glyphFor(const FileEntry& e) const;
+    void resetClickSequence();
 
     std::shared_ptr<Browser> m_browser;
     mayo::ScrollViewView* m_scroller = nullptr;
@@ -145,6 +152,10 @@ private:
     // Pointer gesture state.
     mayo::Point m_downAt;
     std::string m_downItem;
+    std::string m_lastClickItem;
+    int m_lastClickCount = 0;
+    bool m_plainPress = false;
+    bool m_openOnUp = false;
     bool m_collapseOnUp = false;  // click on an already selected item: select only it, unless a drag starts
     bool m_leftPress = false;
     bool m_banding = false;

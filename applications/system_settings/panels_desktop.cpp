@@ -110,11 +110,10 @@ Element styleSection() {
         p.drawText(mayo::uiText(i == 0 ? "Default" : "Dark"), {cell.x, preview.bottom() + 5, cell.width, 16}, f,
                    selected ? c.label : c.secondaryLabel, TextAlign::Center);
     });
-    auto syncStyle = [scheme, styles] { styles->setSelected(scheme.getString() == "prefer-dark" ? 1 : 0); };
-    syncStyle();
     styles.onChoose([scheme](int i) { scheme.setString(i == 1 ? "prefer-dark" : "default"); });
-    scheme.watch(syncStyle);
-    if (!scheme) styles.disabled();
+    ui::bindControl(scheme, styles, [weak = std::weak_ptr<ui::ChoiceGridView>(styles.node())](const gx::Key& k, bool) {
+        if (auto grid = weak.lock()) grid->setSelected(k.getString() == "prefer-dark" ? 1 : 0);
+    });
 
     std::vector<Element> rows{FormRow(HStack({Spacer(), styles, Spacer()}))};
     if (accent) {
@@ -128,16 +127,18 @@ Element styleSection() {
             else if (hovered) p.strokeCircle(ctr, 13.5f, theme().colors.secondaryFill, 2);
         });
         dots.caption([](int i) { return std::string(kGnomeAccents[i].name); });
-        auto syncAccent = [accent, dots, styles] {
-            const std::string id = accent.getString();
-            for (int i = 0; i < 9; ++i) {
-                if (id == kGnomeAccents[i].id) dots->setSelected(i);
-            }
-            styles->invalidate();  // the previews use the accent
-        };
-        syncAccent();
         dots.onChoose([accent](int i) { accent.setString(kGnomeAccents[i].id); });
-        accent.watch(syncAccent);
+        ui::bindControl(accent, dots,
+                        [weak = std::weak_ptr<ui::ChoiceGridView>(dots.node()),
+                         preview = std::weak_ptr<ui::ChoiceGridView>(styles.node())](const gx::Key& k, bool) {
+                            if (auto grid = weak.lock()) {
+                                int selected = -1;
+                                for (int i = 0; i < 9; ++i)
+                                    if (k.getString() == kGnomeAccents[i].id) selected = i;
+                                grid->setSelected(selected);
+                            }
+                            if (auto grid = preview.lock()) grid->invalidate();
+                        });
         rows.push_back(FormRow("Accent Color", dots));
     }
     return ui::section("Style", rows);
@@ -379,12 +380,6 @@ FormRow fontRow(const std::string& title, const gx::Key& key) {
     std::vector<std::string> sizes;
     for (int s = 6; s <= 24; ++s) sizes.push_back(std::to_string(s));
     auto size = Picker(sizes, 0);
-    auto sync = [key, button, size]() mutable {
-        auto [family, pt] = splitFont(key.getString());
-        button.setTitle(family);
-        size->setSelected(std::clamp(pt, 6, 24) - 6);
-    };
-    sync();
     button.onClick([key, anchor = ui::Anchor(button)] {
         std::vector<ui::Option> items;
         for (const auto& f : fontFamilies()) items.push_back({f, f});
@@ -393,12 +388,13 @@ FormRow fontRow(const std::string& title, const gx::Key& key) {
         }, "Search Fonts");
     });
     size.onChange([key](int i) { key.setString(splitFont(key.getString()).first + " " + std::to_string(i + 6)); });
-    key.watch(sync);
-    if (!key) {
-        button.disabled();
-        size.disabled();
-    }
-    return FormRow(title, HStack({button, size}).spacing(6).align(Alignment::Center));
+    return ui::boundRow(title, key, HStack({button, size}).spacing(6).align(Alignment::Center), {},
+                        [weakButton = std::weak_ptr<ButtonView>(button.node()),
+                         weakSize = std::weak_ptr<PickerView>(size.node())](const gx::Key& k, bool) {
+                            auto [family, pt] = splitFont(k.getString());
+                            if (auto b = weakButton.lock()) b->setTitle(family);
+                            if (auto p = weakSize.lock()) p->setSelected(std::clamp(pt, 6, 24) - 6);
+                        });
 }
 
 /// Theme directories under every icons/ or themes/ dir that satisfy `accept`.

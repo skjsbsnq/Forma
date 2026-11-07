@@ -1,5 +1,5 @@
-#include "mayonnaise/ui_translation.hpp"
 #include "ui.hpp"
+#include "mayonnaise/ui_translation.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -14,53 +14,104 @@ namespace {
 
 constexpr float kPageWidth = 640;
 
-/// Labels for a key's control row; unavailable keys say so instead of failing silently.
 std::string subtitleFor(const gx::Key& key, const std::string& subtitle) {
-    return key ? subtitle : (subtitle.empty() ? "Not available on this system" : subtitle + " · not available");
+    std::string state;
+    if (!key.available())
+        state = "Not available on this system";
+    else if (!key.writable())
+        state = gx::readOnly() ? "Read-only mode" : "Locked or not writable";
+    else if (key.pending())
+        state = "Applying…";
+    return state.empty() ? subtitle : subtitle.empty() ? state : subtitle + " · " + state;
 }
 
 }  // namespace
+
+// Observers keep weak widget references: key caches outlive pages, and a control's handler owns its Key.
+FormRow boundRow(const std::string& title, const gx::Key& key, const Element& control, const std::string& subtitle,
+                 std::function<void(const gx::Key&, bool)> sync) {
+    auto row = FormRow(title, control, " ");
+    auto detail = std::dynamic_pointer_cast<LabelView>(row->children().front()->children().back());
+    std::weak_ptr<LabelView> weakDetail = detail;
+    std::weak_ptr<Widget> weakControl = control.widget();
+    auto status = [weakControl, weakDetail, subtitle](const gx::Key& k, const gx::WriteResult& result) {
+        if (auto c = weakControl.lock()) c->setDisabled(!k.writable() || k.pending());
+        if (auto label = weakDetail.lock()) {
+            const std::string text = result.error.empty() ? subtitleFor(k, subtitle) : result.error;
+            label->setText(text);
+            label->setForeground(result.error.empty() ? std::optional<Color>{} : theme().colors.red);
+            label->setHidden(text.empty());
+        }
+    };
+    sync(key, false);
+    status(key, {});
+    key.watch([key, sync, status] {
+        sync(key, false);
+        status(key, {});
+    });
+    key.watchWrite([sync, status](const gx::Key& k, const gx::WriteResult& result) {
+        if (!result.pending()) sync(k, true);  // failure must undo optimistic UI even in a focused text field
+        status(k, result);
+    });
+    return row;
+}
+
+void bindControl(const gx::Key& key, const Element& control, std::function<void(const gx::Key&, bool)> sync) {
+    std::weak_ptr<Widget> weakControl = control.widget();
+    auto status = [weakControl](const gx::Key& k) {
+        if (auto c = weakControl.lock()) c->setDisabled(!k.writable() || k.pending());
+    };
+    sync(key, false);
+    status(key);
+    key.watch([key, sync, status] {
+        sync(key, false);
+        status(key);
+    });
+    key.watchWrite([weakControl, sync, status](const gx::Key& k, const gx::WriteResult& result) {
+        if (!result.pending()) sync(k, true);
+        status(k);
+        if (!result.error.empty()) {
+            if (auto c = weakControl.lock(); c && c->host())
+                message(Element(c), "Unable to change setting", result.error);
+        }
+    });
+}
 
 // Bound rows ---------------------------------------------------------------------------------------------
 
 FormRow toggleRow(const std::string& title, const gx::Key& key, const std::string& subtitle, bool invert) {
     auto toggle = Toggle("", key.getBool() != invert).onChange([key, invert](bool on) { key.set(on != invert); });
-    if (!key) toggle.disabled();
-    key.watch([key, toggle, invert]() mutable { toggle.setOn(key.getBool() != invert); });
-    return FormRow(title, toggle, subtitleFor(key, subtitle));
+    return boundRow(title, key, toggle, subtitle,
+                    [weak = std::weak_ptr<BooleanControlView>(toggle.node()), invert](const gx::Key& k, bool) {
+                        if (auto t = weak.lock()) t->setOn(k.getBool() != invert);
+                    });
 }
 
 FormRow pickerRow(const std::string& title, const gx::Key& key, std::vector<Option> options,
                   const std::string& subtitle) {
     std::vector<std::string> labels;
     for (const auto& o : options) labels.push_back(o.label);
-    auto indexOf = [options](const std::string& v) {
-        for (size_t i = 0; i < options.size(); ++i) {
-            if (options[i].value == v) return static_cast<int>(i);
-        }
-        return -1;
-    };
-    // A value set elsewhere that isn't one of ours shows as "Custom" instead of lying.
     auto picker = Picker(labels, 0);
-    auto sync = [key, picker, labels, indexOf]() mutable {
-        const int i = indexOf(key.getText());
-        if (i >= 0) {
-            if (picker->selected() >= static_cast<int>(labels.size())) picker->setOptions(labels);
-            picker->setSelected(i);
-        } else {
-            auto withCustom = labels;
-            withCustom.push_back("Custom (" + key.getText() + ")");
-            picker->setOptions(withCustom);
-            picker->setSelected(static_cast<int>(withCustom.size()) - 1);
-        }
-    };
-    sync();
     picker.onChange([key, options](int i) {
         if (i >= 0 && i < static_cast<int>(options.size())) key.setText(options[static_cast<size_t>(i)].value);
     });
-    if (!key) picker.disabled();
-    key.watch(sync);
-    return FormRow(title, picker, subtitleFor(key, subtitle));
+    return boundRow(title, key, picker, subtitle,
+                    [weak = std::weak_ptr<PickerView>(picker.node()), labels, options](const gx::Key& k, bool) {
+                        if (auto p = weak.lock()) {
+                            int index = -1;
+                            const std::string text = k.getText();
+                            for (size_t i = 0; i < options.size(); ++i) {
+                                if (options[i].value == text) index = static_cast<int>(i);
+                            }
+                            auto visible = labels;
+                            if (index < 0) {
+                                visible.push_back("Custom (" + text + ")");
+                                index = static_cast<int>(labels.size());
+                            }
+                            p->setOptions(visible);
+                            p->setSelected(index);
+                        }
+                    });
 }
 
 FormRow sliderRow(const std::string& title, const gx::Key& key, float min, float max, float step,
@@ -68,9 +119,10 @@ FormRow sliderRow(const std::string& title, const gx::Key& key, float min, float
     auto slider = Slider(static_cast<float>(key.getDouble() * scale), min, max).width(220);
     if (step > 0) slider.step(step);
     slider.onChange([key, scale](float v) { key.setDouble(static_cast<double>(v) / scale); });
-    if (!key) slider.disabled();
-    key.watch([key, slider, scale]() mutable { slider->setValue(static_cast<float>(key.getDouble() * scale)); });
-    return FormRow(title, slider, subtitleFor(key, subtitle));
+    return boundRow(title, key, slider, subtitle,
+                    [weak = std::weak_ptr<SliderView>(slider.node()), scale](const gx::Key& k, bool) {
+                        if (auto s = weak.lock()) s->setValue(static_cast<float>(k.getDouble() * scale));
+                    });
 }
 
 FormRow sliderValueRow(const std::string& title, const gx::Key& key, float min, float max, float step,
@@ -79,17 +131,16 @@ FormRow sliderValueRow(const std::string& title, const gx::Key& key, float min, 
     auto value = Label(format(v0)).secondary().font(TextStyle::Callout).width(64).textAlign(TextAlign::Trailing);
     auto slider = Slider(v0, min, max).width(180);
     if (step > 0) slider.step(step);
-    slider.onChange([key, value, format](float v) mutable {
-        value.setText(format(v));
-        key.setDouble(v);
-    });
-    if (!key) slider.disabled();
-    key.watch([key, slider, value, format]() mutable {
-        const auto v = static_cast<float>(key.getDouble());
-        slider->setValue(v);
-        value.setText(format(v));
-    });
-    return FormRow(title, HStack({slider, value}).spacing(8).align(Alignment::Center), subtitleFor(key, subtitle));
+    slider.onChange([key](float v) { key.setDouble(v); });
+    auto row = boundRow(title, key, slider, subtitle,
+                        [weak = std::weak_ptr<SliderView>(slider.node()),
+                         label = std::weak_ptr<LabelView>(value.node()), format](const gx::Key& k, bool) {
+                            const auto v = static_cast<float>(k.getDouble());
+                            if (auto s = weak.lock()) s->setValue(v);
+                            if (auto l = label.lock()) l->setText(format(v));
+                        });
+    row->addChild(value.node());
+    return row;
 }
 
 FormRow textRow(const std::string& title, const gx::Key& key, const std::string& placeholder, float width) {
@@ -97,12 +148,11 @@ FormRow textRow(const std::string& title, const gx::Key& key, const std::string&
     field.onChange([key](const std::string& t) {
         if (t != key.getText()) key.setText(t);
     });
-    // Don't fight the user: changes from elsewhere only land while the field isn't being edited.
-    key.watch([key, field]() mutable {
-        if (!field->isFocused() && field.value() != key.getText()) field.setText(key.getText());
-    });
-    if (!key) field.disabled();
-    return FormRow(title, field, subtitleFor(key, {}));
+    return boundRow(title, key, field, {},
+                    [weak = std::weak_ptr<TextFieldView>(field.node())](const gx::Key& k, bool force) {
+                        if (auto f = weak.lock(); f && (force || !f->isFocused()) && f->text() != k.getText())
+                            f->setText(k.getText());
+                    });
 }
 
 FormRow infoRow(const std::string& title, const std::string& value) {
@@ -407,6 +457,9 @@ private:
 
 Element page(const std::vector<Element>& sections, std::shared_ptr<void> model) {
     std::vector<Element> visible;
+    if (gx::readOnly())
+        visible.push_back(FormRow(
+            Label("Read-only mode — system settings will not be changed").font(TextStyle::Callout).secondary()));
     for (const auto& s : sections) {
         if (s) visible.push_back(s);
     }

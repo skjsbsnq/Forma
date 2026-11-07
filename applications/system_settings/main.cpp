@@ -130,6 +130,9 @@ int main(int argc, char** argv) {
 
     window.setToolbar(Toolbar({ToolbarGroup({backButton, forwardButton}), titleLabel, Spacer()}));
     window.setContent(split);
+    gx::setWriteErrorHandler([anchor = ui::Anchor(titleLabel)](const gx::Key& key, const gx::WriteResult& result) {
+        ui::message(anchor, "Unable to change setting", key.name() + ": " + result.error);
+    });
     window.onKey([&](const KeyEvent& e) {
         if (e.alt() && e.key == Key::Left) return goBack(), true;
         if (e.alt() && e.key == Key::Right) return goForward(), true;

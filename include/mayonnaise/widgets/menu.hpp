@@ -80,6 +80,7 @@ public:
     Size measureContent(Size available) override;
     [[nodiscard]] bool acceptsFocus() const override { return true; }
     [[nodiscard]] bool isInteractive() const override { return true; }
+    [[nodiscard]] const Widget* focusScopeOwner() const override;
     bool onPointerDown(const PointerEvent& e) override;
     void onPointerMove(const PointerEvent& e) override;
     void onPointerUp(const PointerEvent& e) override;
@@ -88,6 +89,7 @@ public:
 
 protected:
     void drawPanel(Painter& painter) override;
+    void willDismiss() override;
 
 private:
     [[nodiscard]] int itemAt(Point p) const;
@@ -101,6 +103,7 @@ private:
     int m_highlighted = -1;
     int m_pressed = -1;
     std::shared_ptr<MenuView> m_submenu;
+    std::weak_ptr<MenuView> m_parentMenu;
     int m_submenuIndex = -1;
 };
 

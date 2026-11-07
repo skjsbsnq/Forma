@@ -1170,26 +1170,35 @@ FormRow suspendRow(const std::string& title, const std::string& prefix) {
     const std::vector<int> minutes{0, 15, 20, 25, 30, 45, 60, 80, 90, 100, 120};
     std::vector<std::string> names;
     for (int m : minutes) names.push_back(m == 0 ? "Off" : ui::formatDuration(m * 60));
-    auto picker = Picker(names, 0);
-    auto sync = [type, timeout, picker, minutes]() mutable {
-        if (type.getString() == "nothing") return picker->setSelected(0);
-        const auto secs = timeout.getInt();
+    if (!type || !timeout) return ui::pickerRow(title, {}, {});
+    auto backend = std::make_shared<gx::KeyBackend>();
+    backend->type = "i";
+    backend->fallback = "0";
+    backend->read = [type, timeout, minutes]() -> std::optional<std::string> {
+        if (type.getString() == "nothing") return "0";
         int best = 1;
         for (size_t i = 1; i < minutes.size(); ++i) {
-            if (std::abs(minutes[i] * 60 - secs) < std::abs(minutes[static_cast<size_t>(best)] * 60 - secs)) best = static_cast<int>(i);
+            if (std::abs(minutes[i] * 60 - timeout.getInt()) <
+                std::abs(minutes[static_cast<size_t>(best)] * 60 - timeout.getInt()))
+                best = static_cast<int>(i);
         }
-        picker->setSelected(best);
+        return std::to_string(best);
     };
-    sync();
-    picker.onChange([type, timeout, minutes](int i) {
+    backend->writable = [type, timeout] { return type.writable() && timeout.writable(); };
+    backend->write = [type, timeout, minutes](const std::optional<std::string>& value, gx::WriteDone) {
+        const int i = value ? std::atoi(value->c_str()) : 0;
         if (i == 0) return type.setString("nothing");
-        timeout.setInt(minutes[static_cast<size_t>(i)] * 60);
-        type.setString("suspend");
-    });
-    type.watch(sync);
-    timeout.watch(sync);
-    if (!type) picker.disabled();
-    return FormRow(title, picker);
+        if (i < 0 || i >= static_cast<int>(minutes.size())) return gx::WriteResult::failure("Invalid suspend timeout");
+        auto result = timeout.setInt(minutes[static_cast<size_t>(i)] * 60);
+        return result.ok() ? type.setString("suspend") : result;
+    };
+    backend->watch = [type, timeout](std::function<void()> fn) {
+        type.watch(fn);
+        timeout.watch(std::move(fn));
+    };
+    std::vector<ui::Option> options;
+    for (size_t i = 0; i < names.size(); ++i) options.push_back({names[i], std::to_string(i)});
+    return ui::pickerRow(title, gx::Key(backend), options);
 }
 
 class PowerPanel {

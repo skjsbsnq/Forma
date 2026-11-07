@@ -221,10 +221,13 @@ int main(int argc, char** argv) {
 
     auto pathBar = std::make_shared<PathBarView>(browser);
     auto opSpinner = ProgressSpinner();
-    auto opLabel = Label("").font(TextStyle::Subheadline).secondary();
+    auto opLabel = Label("").font(TextStyle::Subheadline).secondary().lineLimit(1).maxWidth(420);
+    auto cancelOperation = Button("取消").style(ButtonStyle::Borderless).tooltip("取消排队任务并安全停止当前操作");
+    cancelOperation.setHidden(true);
     auto statusLabel = Label("").font(TextStyle::Subheadline).secondary().textAlign(TextAlign::Center);
     auto sizeSlider = Slider(64, 32, 128).width(110).tooltip("图标大小（Ctrl+滚轮）");
-    auto statusBar = ZStack({HStack({opSpinner, opLabel, Spacer(), sizeSlider}).spacing(6).padding(0, 12), statusLabel});
+    auto statusBar = ZStack(
+        {HStack({opSpinner, opLabel, cancelOperation, Spacer(), sizeSlider}).spacing(6).padding(0, 12), statusLabel});
     statusBar.height(kStatusBarHeight);
     auto bottom = VStack({Element(pathBar), statusBar}).spacing(0);
 
@@ -259,7 +262,11 @@ int main(int argc, char** argv) {
     auto quickLook = std::make_shared<QuickLookView>(browser);
     auto menu = std::make_shared<MenuView>(std::vector<MenuItem>{});
 
+    bool closeAfterOperations = false;
+    bool closePrompt = false;
     FileOps ops(app, [&](const std::string& message) {
+        // A safe-finishing failure must stay visible instead of disappearing with the window.
+        closeAfterOperations = false;
         if (!page->host()) return;
         std::make_shared<AlertView>("无法完成此操作。", message,
                                     std::vector<AlertButton>{{"确定", {}, ButtonStyle::Prominent}}, true)
@@ -305,7 +312,28 @@ int main(int argc, char** argv) {
         statusLabel.setText(text);
         const bool busy = ops.busy() || diskBusy;
         opSpinner.setHidden(!busy);
-        opLabel.setText(diskBusy || !diskStatus.empty() ? diskStatus : ops.busy() ? ops.status() : diskServiceError);
+        statusLabel.setHidden(busy);
+        std::string operation = ops.status();
+        if (ops.busy() && !ops.progress().item.empty()) {
+            const auto& progress = ops.progress();
+            const char* stage = progress.phase == transaction::Phase::Scanning         ? "正在准备 "
+                                : progress.phase == transaction::Phase::Copying        ? "正在复制 "
+                                : progress.phase == transaction::Phase::Committing     ? "正在提交 "
+                                : progress.phase == transaction::Phase::RemovingSource ? "正在移除来源 "
+                                : progress.phase == transaction::Phase::Restoring      ? "正在恢复 "
+                                                                                       : "正在处理 ";
+            operation =
+                (ops.cancelling() ? std::string("正在安全收尾 ") : std::string(stage)) + displayName(progress.item);
+            if (progress.total) operation += " · " + formatSize(progress.bytes) + " / " + formatSize(progress.total);
+        }
+        opLabel.setText(diskBusy || !diskStatus.empty() ? diskStatus : ops.busy() ? operation : diskServiceError);
+        cancelOperation.setHidden(!ops.busy());
+        cancelOperation.setDisabled(ops.cancelling());
+        const bool hideStatus = !busy && !prefs.getBool("showStatusBar", true);
+        if (statusBar->isVisible() == hideStatus) {
+            statusBar.setHidden(hideStatus);
+            page->invalidateLayout();
+        }
         const auto* device = deviceForPath(b.path);
         ejectButton.setHidden(!device || !device->canRemove());
         ejectButton.setDisabled(diskBusy || ops.busy());
@@ -392,7 +420,33 @@ int main(int argc, char** argv) {
     };
 
     FolderWatcher watcher(app, [&] { reload(); });
-    ops.onChanged = [&] { updateStatus(); };
+    cancelOperation.onClick([&] { ops.cancel(); });
+    auto allowClose = [&] {
+        if (!ops.busy()) return true;
+        if (closeAfterOperations || closePrompt || !page->host()) return false;
+        closePrompt = true;
+        std::make_shared<AlertView>("文件操作尚未完成", "关闭前需要等待安全收尾。取消不会中断提交或恢复旧目标。",
+                                    std::vector<AlertButton>{{"留在窗口继续", [&] { closePrompt = false; }},
+                                                             {"取消操作并关闭",
+                                                              [&] {
+                                                                  closePrompt = false;
+                                                                  closeAfterOperations = true;
+                                                                  ops.cancel();
+                                                                  if (!ops.busy()) window.close();
+                                                              },
+                                                              ButtonStyle::Prominent}},
+                                    true)
+            ->show(*page->host());
+        return false;
+    };
+    window.onCloseRequested(allowClose);
+    ops.onChanged = [&] {
+        updateStatus();
+        if (closeAfterOperations && !ops.busy())
+            app.post([&] {
+                if (closeAfterOperations && !ops.busy()) window.close();
+            });
+    };
     updateAfterPreview = [&] {
         if (auto* v = currentView()) v->invalidate();
         quickLook->invalidate();
@@ -631,13 +685,17 @@ int main(int argc, char** argv) {
 
     auto selectAfterOp = [&](const std::vector<std::string>& paths) {
         reload();
-        browser->selection.clear();
-        for (const auto& p : paths) {
-            if (parentPath(p) == browser->path) browser->selection.insert(p);
+        std::vector<std::string> visible;
+        for (const auto& path : paths) {
+            if (parentPath(path) == browser->path) visible.push_back(path);
         }
-        browser->lead = browser->anchor = paths.empty() ? std::string() : paths.front();
+        // A cancelled task or navigation during work must not erase the current folder's selection.
+        if (!visible.empty()) {
+            browser->selection = std::set<std::string>(visible.begin(), visible.end());
+            browser->lead = browser->anchor = visible.front();
+            revealLater(visible.front());
+        }
         browser->notifySelection();
-        if (!paths.empty()) revealLater(paths.front());
     };
 
     auto moveToTrashSelected = [&] {
@@ -731,18 +789,21 @@ int main(int argc, char** argv) {
             else ops.copy(sources, folder, done);
         };
         std::vector<std::string> collisions;
+        std::vector<FileOps::Replacement> replacements;
         for (const auto& src : sources) {
             if (parentPath(src) == folder || isInside(folder, src)) continue;
             auto target = fs::path(folder) / fs::path(src).filename();
             std::error_code ec;
-            if (fs::exists(fs::symlink_status(target, ec))) collisions.push_back(target.string());
+            if (fs::exists(fs::symlink_status(target, ec))) {
+                collisions.push_back(target.string());
+                struct stat existing{};
+                if (::lstat(target.c_str(), &existing) == 0)
+                    replacements.push_back({target.string(), transaction::identity(existing)});
+            }
         }
         if (collisions.empty()) { perform(); return; }
-        auto replace = [&, collisions, perform] {
-            // Preserve replaced items in Trash; abort if any could not be preserved.
-            ops.trash(collisions, [collisions, perform](auto saved) {
-                if (saved.size() == collisions.size()) perform();
-            });
+        auto replace = [&, sources, folder, move, done, replacements] {
+            ops.transfer(sources, folder, move, true, done, replacements);
         };
         auto alert = std::make_shared<AlertView>(
             "已存在“" + fs::path(collisions.front()).filename().string() + "”",
@@ -771,13 +832,22 @@ int main(int argc, char** argv) {
         }
         auto done = [&, files](std::vector<std::string> created) {
             selectAfterOp(created);
-            if (files.cut && created.size() == files.paths.size()) {
+            if (files.cut && !created.empty()) {
                 const auto current = readFileClipboard();
                 if (current.cut && current.paths == files.paths) {
-                    // Subsequent pastes refer to the moved items, never to missing source paths.
-                    writeFileClipboard({created, false});
-                    clipboard = {};
-                    browser->cut.clear();
+                    auto remaining = files.paths;
+                    const auto& completed = ops.completedSources();
+                    std::erase_if(remaining, [&](const std::string& path) {
+                        return std::find(completed.begin(), completed.end(), path) != completed.end();
+                    });
+                    // A partial paste keeps only unfinished sources cut; never reference moved originals.
+                    const FileClipboard next =
+                        remaining.empty() ? FileClipboard{created, false} : FileClipboard{remaining, true};
+                    if (writeFileClipboard(next)) {
+                        clipboard = remaining.empty() ? FileClipboard{} : next;
+                        browser->cut = std::set<std::string>(remaining.begin(), remaining.end());
+                    } else
+                        showAlert("无法更新剪贴板", "文件操作已完成，但无法更新剪贴板；请重新选择并复制剩余文件。");
                 }
             }
         };
@@ -1508,7 +1578,9 @@ int main(int argc, char** argv) {
                     if (auto* h = page->host()) h->setFocus(searchField.node().get(), true);
                     searchField->selectAll();
                     return true;
-                case Key::W: window.close(); return true;
+                case Key::W:
+                    if (allowClose()) window.close();
+                    return true;
                 case Key::Comma: openSettings(); return true;
                 default: break;
             }
@@ -1591,11 +1663,12 @@ int main(int argc, char** argv) {
     navigateTo(start, {}, false);
 
     // MAYO_DEMO=<step>[,<step>...] drives the window for screenshots and smoke tests. Steps: list, columns,
-    // select:<name>, quicklook[:name], info[:name], openwith[:name], submenu:<row>, choose:<app id>, perms:<owner|group|others>:<rw|r|none>,
-    // menu[:name], rename[:name], search:<query>, size:<points>, narrow, scroll:<points>, overflow,
-    // goto, open:<name>, back, up, newfolder, trash:<name>, undo, duplicate:<name>, copy:<name>, cut:<name>,
-    // paste, renameto:<old>=<new>, drop:<item>=<folder>, hidden, type:<letters>, settings, closesettings,
-    // input:<text>, key:<enter|escape>, wait:<seconds>.
+    // select:<name>, shiftselect:<name> (list mode, no expanded folders; Shift double-click regression),
+    // quicklook[:name], info[:name], openwith[:name], submenu:<row>, choose:<app id>,
+    // perms:<owner|group|others>:<rw|r|none>, menu[:name], rename[:name], search:<query>, size:<points>, narrow,
+    // scroll:<points>, overflow, goto, open:<name>, back, up, newfolder, trash:<name>, undo, duplicate:<name>,
+    // copy:<name>, cut:<name>, paste, renameto:<old>=<new>, drop:<item>=<folder>, hidden, type:<letters>, settings,
+    // closesettings, input:<text>, key:<enter|escape>, wait:<seconds>.
     if (const char* env = std::getenv("MAYO_DEMO")) {
         auto selectNamed = [&](const std::string& name) {
             for (const auto& e : browser->entries) {
@@ -1629,7 +1702,22 @@ int main(int argc, char** argv) {
                     }
                 } else if (what == "columns") setMode(ViewMode::Columns);
                 else if (what == "select") selectNamed(arg);
-                else if (what == "size") browser->resizeIcons(static_cast<float>(std::atof(arg.c_str())));
+                else if (what == "shiftselect" && mode == ViewMode::List) {
+                    const auto found = std::find_if(browser->entries.begin(), browser->entries.end(),
+                                                    [&](const FileEntry& entry) { return entry.name == arg; });
+                    if (found != browser->entries.end()) {
+                        const auto index = static_cast<float>(std::distance(browser->entries.begin(), found));
+                        const auto r = listRows->frame();
+                        const PointerEvent event{
+                            {r.x + theme().metrics.spacingLarge, r.y + (index + 0.5f) * ListRowsView::kRowHeight},
+                            MouseButton::Left,
+                            2,
+                            Modifiers::Shift};
+                        listRows->onPointerDown(event);
+                        listRows->onPointerUp(event);
+                    }
+                } else if (what == "size")
+                    browser->resizeIcons(static_cast<float>(std::atof(arg.c_str())));
                 else if (what == "quicklook") {
                     if (!arg.empty()) selectNamed(arg);
                     browser->quickLook();

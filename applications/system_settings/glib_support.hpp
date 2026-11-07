@@ -49,7 +49,7 @@ void stop();
 /// Runs `fn` on the UI thread (no-op once stopped).
 void toUi(std::function<void()> fn);
 
-/// Read-only mode (screenshot / demo runs): every write to the system is skipped and reported as done.
+/// Read-only mode (screenshot / demo runs): writes are rejected, never reported as successful.
 void setReadOnly(bool readOnly);
 [[nodiscard]] bool readOnly();
 
@@ -57,14 +57,31 @@ void setReadOnly(bool readOnly);
 
 [[nodiscard]] bool hasSchema(const std::string& schema);
 
+enum class WriteStatus { Success, Failure, ReadOnly, Pending };
+
+struct WriteResult {
+    WriteStatus status = WriteStatus::Success;
+    std::string error;
+    [[nodiscard]] bool ok() const { return status == WriteStatus::Success; }
+    [[nodiscard]] bool pending() const { return status == WriteStatus::Pending; }
+    static WriteResult failure(std::string reason) { return {WriteStatus::Failure, std::move(reason)}; }
+    static WriteResult readOnly(std::string reason = "Settings are read-only") {
+        return {WriteStatus::ReadOnly, std::move(reason)};
+    }
+};
+using WriteDone = std::function<void(WriteResult)>;
+/// An asynchronous writer returns Pending and calls done exactly once with its final result.
+using Writer = std::function<WriteResult(const std::optional<std::string>&, WriteDone)>;
+
 /// Storage for a key that isn't GSettings: a KDE config file entry, a D-Bus property. Values travel as text
 /// (KConfig's own format: "true", "12", "1.5", lists joined with commas) and `type` says how to read them.
 struct KeyBackend {
     std::string type;      ///< "b", "i", "d", "s" or "as"
     std::string fallback;  ///< value text when nothing is stored
     std::function<std::optional<std::string>()> read;               ///< nullopt: not set (the fallback applies)
-    std::function<void(const std::optional<std::string>&)> write;   ///< nullopt: reset to the default
+    Writer write;                                                   ///< nullopt: reset to the default
     std::function<void(std::function<void()>)> watch;               ///< optional
+    std::function<bool()> writable;  ///< optional capability / policy check, independent of availability
     std::optional<std::pair<double, double>> range;
 };
 
@@ -75,12 +92,15 @@ class Key {
 public:
     Key() = default;
     /// `path` is for relocatable schemas (per-application notification settings).
-    Key(const std::string& schema, std::string key, const std::string& path = {});
+    Key(const std::string& schema, std::string key, const std::string& path = {}, GSettingsBackend* backend = nullptr);
     explicit Key(std::shared_ptr<const KeyBackend> backend, std::string name = {})
         : m_key(std::move(name)), m_backend(std::move(backend)) {}
 
     [[nodiscard]] bool available() const { return m_settings != nullptr || m_backend != nullptr; }
     explicit operator bool() const { return available(); }
+    [[nodiscard]] bool writable() const;
+    [[nodiscard]] bool readOnly() const { return available() && !writable(); }
+    [[nodiscard]] bool pending() const;
     [[nodiscard]] const std::string& name() const { return m_key; }
     [[nodiscard]] GSettings* settings() const { return m_settings; }
     /// GVariant type string of the value ("b", "s", "i", "u", "d", "as", "a(ss)"...).
@@ -95,16 +115,18 @@ public:
     /// The value as text: strings verbatim, numbers in decimal, booleans "true"/"false".
     [[nodiscard]] std::string getText() const;
 
-    void set(bool v) const;
-    void setInt(std::int64_t v) const;
-    void setDouble(double v) const;
-    void setString(const std::string& v) const;
-    void setStrv(const std::vector<std::string>& v) const;
+    /// GSettings success means backend acceptance (GIO exposes no asynchronous dconf disk-commit result).
+    /// External writers return Pending until done; copies of a Key share that pending state.
+    WriteResult set(bool v, WriteDone done = {}) const;
+    WriteResult setInt(std::int64_t v, WriteDone done = {}) const;
+    WriteResult setDouble(double v, WriteDone done = {}) const;
+    WriteResult setString(const std::string& v, WriteDone done = {}) const;
+    WriteResult setStrv(const std::vector<std::string>& v, WriteDone done = {}) const;
     /// Parses `text` the way getText() writes it, for the key's own type.
-    void setText(const std::string& text) const;
+    WriteResult setText(const std::string& text, WriteDone done = {}) const;
     /// Takes ownership of a floating variant.
-    void setValue(GVariant* v) const;
-    void reset() const;
+    WriteResult setValue(GVariant* v, WriteDone done = {}) const;
+    WriteResult reset(WriteDone done = {}) const;
     [[nodiscard]] bool isDefault() const;
 
     /// Allowed range of a numeric key ("range" in the schema), if any.
@@ -114,14 +136,25 @@ public:
 
     /// `fn` runs on the UI thread whenever the key changes, from this app or any other.
     void watch(std::function<void()> fn) const;
+    /// UI-thread write lifecycle, including asynchronous completion (separate from value changes).
+    void watchWrite(std::function<void(const Key&, const WriteResult&)> fn) const;
 
 private:
     [[nodiscard]] std::optional<std::string> backendText() const;
+    WriteResult submit(std::function<WriteResult(WriteDone)> write, WriteDone done) const;
+    WriteResult reject(std::string reason, WriteDone done) const;
+    struct WriteState;
+    std::shared_ptr<WriteState> m_writeState = makeWriteState();
+    static std::shared_ptr<WriteState> makeWriteState();
 
     GSettings* m_settings = nullptr;  // owned by a process-wide cache
     std::string m_key;
     std::shared_ptr<const KeyBackend> m_backend;
 };
+
+/// Fallback for legacy hand-built panel actions without a write observer / completion callback.
+/// Cleared by stop(); bound rows report their own errors instead.
+void setWriteErrorHandler(std::function<void(const Key&, const WriteResult&)> handler);
 
 /// KConfig list syntax: values joined with commas, literal commas escaped.
 [[nodiscard]] std::vector<std::string> splitList(const std::string& text);
@@ -190,6 +223,8 @@ struct ProcessResult {
 [[nodiscard]] ProcessResult runSync(const std::vector<std::string>& argv);
 /// Runs asynchronously; `done` on the UI thread. `mutates` runs are skipped in read-only mode.
 void run(const std::vector<std::string>& argv, std::function<void(ProcessResult)> done = {}, bool mutates = true);
+/// Mutation with an explicit final write result (stderr / exit status on failure).
+WriteResult runWrite(const std::vector<std::string>& argv, WriteDone done);
 /// Long-running process (pactl subscribe, nmcli monitor) whose stdout lines arrive on the UI thread.
 /// Killed by stop().
 void stream(const std::vector<std::string>& argv, std::function<void(const std::string& line)> onLine);

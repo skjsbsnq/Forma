@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <thread>
 
@@ -297,7 +298,13 @@ int main() {
     auto memGraph = std::make_shared<HistoryGraph>(HistoryGraph::Mode::Stacked);
     memGraph->setFixedMax(1.0);
     double pressure = 0;
-    auto pressureColor = [&] { return pressure < 0.4 ? colors().green : pressure < 0.75 ? colors().yellow : colors().red; };
+    bool pressureKnown = false;
+    auto pressureColor = [&] {
+        return !pressureKnown    ? colors().tertiaryLabel
+               : pressure < 0.4  ? colors().green
+               : pressure < 0.75 ? colors().yellow
+                                 : colors().red;
+    };
     memGraph->setColorProvider([&] { return std::vector<Color>{pressureColor()}; });
     StatRow memPhysical("Physical Memory");
     StatRow memUsed("Memory Used", [&] { return colors().blue; });
@@ -307,17 +314,25 @@ int main() {
     StatRow swapActivity("Swap Activity");
     auto memBar = std::make_shared<UsageBar>();
     auto swapBar = std::make_shared<UsageBar>();
-    StatRow memPressure("Memory Pressure", pressureColor);
-    StatRow legendUsed("Used", [&] { return colors().blue; });
-    StatRow legendCached("Cached", [&] { return colors().purple; });
-    StatRow legendFree("Free", [&] { return colors().fill.withAlpha(0.6f); });
+    StatRow memPressure("等待时间占比", pressureColor);
+    memPressure.value.tooltip("过去10秒至少一个任务等待内存的时间占比（PSI some avg10），不是内存占用率。");
+    StatRow legendUsed("已用（总量−可用）", [&] { return colors().blue; });
+    StatRow legendCached("可用缓存（估算）", [&] { return colors().purple; });
+    StatRow legendFree("其他可用", [&] { return colors().fill.withAlpha(0.6f); });
     StatRow legendSwap("In use");
-    auto memPanel = HStack({
-        card(VStack({caption("MEMORY PRESSURE"), Element(memGraph), memPressure.row}).spacing(6)),
-        card(VStack({caption("MEMORY"), memPhysical.row, memUsed.row, memCached.row, memFree.row, Divider(), swapUsed.row, swapActivity.row}).spacing(5)).width(280),
-        card(VStack({caption("USAGE"), Element(memBar), legendUsed.row, legendCached.row, legendFree.row, Spacer(4),
-                     caption("SWAP"), Element(swapBar), legendSwap.row}).spacing(6)).width(260),
-    }).spacing(12);
+    auto memPanel =
+        HStack({
+                   card(VStack({caption("内存压力（PSI · 10秒）"), Element(memGraph), memPressure.row}).spacing(6)),
+                   card(VStack({caption("MEMORY"), memPhysical.row, memUsed.row, memCached.row, memFree.row, Divider(),
+                                swapUsed.row, swapActivity.row})
+                            .spacing(5))
+                       .width(280),
+                   card(VStack({caption("内存占用率"), Element(memBar), legendUsed.row, legendCached.row,
+                                legendFree.row, Spacer(4), caption("SWAP"), Element(swapBar), legendSwap.row})
+                            .spacing(6))
+                       .width(260),
+               })
+            .spacing(12);
 
     // Disk
     StatRow diskRead("Data read/s", [&] { return colors().blue; });
@@ -383,24 +398,45 @@ int main() {
         uptime.set(formatUptime(s.uptime));
 
         pressure = s.memoryPressure;
+        pressureKnown = s.memoryPressureKnown;
+        memGraph->push({pressureKnown ? pressure : std::numeric_limits<double>::quiet_NaN()});
+        memPressure.set(pressureKnown ? std::string(pressure < 0.4    ? "正常"
+                                                    : pressure < 0.75 ? "升高"
+                                                                      : "严重") +
+                                            " · " + percent(pressure)
+                                      : "不可用（无法读取 PSI）");
         const double total = static_cast<double>(std::max<std::uint64_t>(1, s.memTotal));
-        memGraph->push({static_cast<double>(s.memUsed) / total});
-        memPressure.set(pressure < 0.4 ? "Normal" : pressure < 0.75 ? "Elevated" : "Critical");
-        memPhysical.set(formatBytes(static_cast<double>(s.memTotal)));
-        memUsed.set(formatBytes(static_cast<double>(s.memUsed)));
-        memCached.set(formatBytes(static_cast<double>(s.memCached)));
-        memFree.set(formatBytes(static_cast<double>(s.memAvailable)));
-        swapUsed.set(formatBytes(static_cast<double>(s.swapUsed)) + " / " + formatBytes(static_cast<double>(s.swapTotal), 0));
+        auto bytes = [&](std::uint64_t value) { return s.memoryKnown ? formatBytes(static_cast<double>(value)) : "—"; };
+        memPhysical.set(bytes(s.memTotal));
+        memUsed.set(bytes(s.memUsed));
+        memCached.set(bytes(s.memCached));
+        memFree.set(bytes(s.memAvailable));
+        swapUsed.set(s.swapKnown ? formatBytes(static_cast<double>(s.swapUsed)) + " / " +
+                                       formatBytes(static_cast<double>(s.swapTotal), 0)
+                                 : "—");
         std::snprintf(buf, sizeof buf, "每秒换入 %.0f · 换出 %.0f", s.swapInRate, s.swapOutRate);
         swapActivity.set(buf);
-        memBar->setSegments({{static_cast<double>(s.memUsed) / total, colors().blue},
-                             {static_cast<double>(s.memCached) / total, colors().purple}});
-        auto pct = [&](std::uint64_t v) { return percent(static_cast<double>(v) / total); };
+        // Available already includes reclaimable cache. Limit the cache segment to available memory
+        // rather than drawing an overlapping breakdown whose fractions can exceed 100%.
+        const auto availableCache = std::min(s.memCached, s.memAvailable);
+        if (s.memoryKnown)
+            memBar->setSegments({{static_cast<double>(s.memUsed) / total, colors().blue},
+                                 {static_cast<double>(availableCache) / total, colors().purple}});
+        else
+            memBar->setSegments({});
+        auto pct = [&](std::uint64_t v) { return s.memoryKnown ? percent(static_cast<double>(v) / total) : "—"; };
         legendUsed.set(pct(s.memUsed));
-        legendCached.set(pct(s.memCached));
-        legendFree.set(pct(s.memTotal - std::min(s.memTotal, s.memUsed + s.memCached)));
-        legendSwap.set(s.swapTotal ? percent(static_cast<double>(s.swapUsed) / static_cast<double>(s.swapTotal)) : "No swap");
-        swapBar->setSegments({{s.swapTotal ? static_cast<double>(s.swapUsed) / static_cast<double>(s.swapTotal) : 0.0, colors().orange}});
+        legendCached.set(pct(availableCache));
+        legendFree.set(pct(s.memAvailable - availableCache));
+        legendSwap.set(!s.swapKnown  ? "—"
+                       : s.swapTotal ? percent(static_cast<double>(s.swapUsed) / static_cast<double>(s.swapTotal))
+                                     : "No swap");
+        if (s.swapKnown)
+            swapBar->setSegments(
+                {{s.swapTotal ? static_cast<double>(s.swapUsed) / static_cast<double>(s.swapTotal) : 0.0,
+                  colors().orange}});
+        else
+            swapBar->setSegments({});
 
         diskRead.set(formatRate(s.diskReadRate));
         diskWrite.set(formatRate(s.diskWriteRate));
@@ -542,44 +578,86 @@ int main() {
         inspector.show(infoButton);
     };
 
-    pid_t quitting = -1;
+    ProcessTarget quitting;
     auto quitQuestion = Label("").font(TextStyle::Headline).maxWidth(330);
     auto quitError = Label("").foreground(Color::hex(0xFF3B30)).maxWidth(330).hidden();
     auto quitCancel = Button("Cancel");
     auto quitForce = Button("Force Quit").style(ButtonStyle::Destructive);
     auto quitButton = Button("Quit").style(ButtonStyle::Prominent);
-    auto quitPopover = Popover(VStack({
-                                          quitQuestion,
-                                          Label("Quit asks the process to exit (SIGTERM). Force Quit stops it immediately "
-                                                "(SIGKILL); unsaved work is lost.")
-                                              .secondary()
-                                              .font(TextStyle::Subheadline)
-                                              .maxWidth(330),
-                                          quitError,
-                                          HStack({Spacer(), quitCancel, quitForce, quitButton}).spacing(8),
-                                      })
-                                   .spacing(10)
-                                   .width(350));
+    auto quitPopover =
+        Popover(VStack({
+                           quitQuestion,
+                           Label("Quit asks the process to exit (SIGTERM). Force Quit stops it immediately "
+                                 "(SIGKILL); unsaved work is lost.")
+                               .secondary()
+                               .font(TextStyle::Subheadline)
+                               .maxWidth(330),
+                           quitError,
+                           HStack({Spacer(), quitCancel, quitForce, quitButton}).spacing(8),
+                       })
+                    .spacing(10)
+                    .width(350));
+    quitPopover.onDismiss([&] { quitting.reset(); });
+    window.onClosed([&] { quitting.reset(); });
+    auto showQuitError = [&](ProcessResult result) {
+        quitting.reset();
+        quitButton.setDisabled(true);
+        quitForce.setDisabled(true);
+        std::string message;
+        switch (result.status) {
+            case ProcessStatus::Exited: message = "目标进程已退出，未发送信号。"; break;
+            case ProcessStatus::IdentityChanged:
+                message = "进程身份已改变（PID 已复用），已拒绝发送信号。请重新选择。";
+                break;
+            case ProcessStatus::Unsupported:
+                message = "内核不支持安全的 pidfd 操作，已拒绝结束进程；不会回退到 PID。";
+                break;
+            case ProcessStatus::PermissionDenied: message = "没有权限安全绑定或结束此进程。"; break;
+            case ProcessStatus::NotBound: message = "没有已验证的进程绑定，请重新确认。"; break;
+            default:
+                message = "无法安全操作目标进程，未发送信号";
+                if (result.error) message += std::string("：") + std::strerror(result.error);
+                break;
+        }
+        quitError.setText(message);
+        quitError.setHidden(false);
+    };
     auto askQuit = [&](pid_t pid, bool force) {
         const ProcessInfo* p = nullptr;
         for (const auto* row : model->rows) {
             if (row->pid == pid) p = row;
         }
         if (!p) return;
-        quitting = pid;
+        // Dismissing an older confirmation releases its binding before opening the new one.
+        quitPopover.dismiss();
         quitQuestion.setText("确定要" + std::string(force ? "强制结束" : "结束") + "进程“" + p->name + "”吗？");
         quitError.setHidden(true);
+        const auto bound = quitting.bind({p->pid, p->startTicks});
+        quitButton.setDisabled(!bound);
+        quitForce.setDisabled(!bound);
+        if (!bound) showQuitError(bound);
         quitPopover.show(stopButton);
     };
     auto sendSignal = [&](int sig) {
-        if (quitting <= 0) return;
-        if (::kill(quitting, sig) == 0 || errno == ESRCH) {
+        const auto result = quitting.sendSignal(sig);
+        if (result)
             quitPopover.dismiss();
+        else
+            showQuitError(result);
+    };
+    auto refreshQuit = [&] {
+        if (!quitPopover.isShown() || !quitting.isBound()) return;
+        const auto result = quitting.check();
+        if (!result) {
+            showQuitError(result);
             return;
         }
-        quitError.setText(errno == EPERM ? "You don't have permission to quit this process. It belongs to another user."
-                                         : std::string("无法发送信号：") + std::strerror(errno));
-        quitError.setHidden(false);
+        for (const auto& p : latest->processes) {
+            if (p.pid == quitting.identity().pid && p.startTicks != quitting.identity().startTicks) {
+                showQuitError({ProcessStatus::IdentityChanged});
+                break;
+            }
+        }
     };
     quitCancel.onClick([&] { quitPopover.dismiss(); });
     quitButton.onClick([&] { sendSignal(SIGTERM); });
@@ -676,6 +754,7 @@ int main() {
         rebuildRows();
         updatePanels(*latest);
         if (inspector.isShown()) refreshInspector();
+        refreshQuit();
         stopButton.setDisabled(model->selected <= 0);
         infoButton.setDisabled(model->selected <= 0);
     });
@@ -750,5 +829,6 @@ int main() {
     }
     const int code = app.run();
     monitor.reset();  // stop sampling before the widgets it posts to go away
+    quitting.reset();
     return code;
 }

@@ -55,18 +55,29 @@ void MenuView::setHighlighted(int index) {
     invalidate();
 }
 
+const Widget* MenuView::focusScopeOwner() const {
+    if (auto parent = m_parentMenu.lock()) return parent->focusScopeOwner();
+    return this;
+}
+
 void MenuView::closeSubmenu() {
     if (m_submenu) m_submenu->dismiss();
 }
 
+void MenuView::willDismiss() { closeSubmenu(); }
+
 void MenuView::showSubmenu(int index) {
-    if (!host()) return;
+    if (!host() || index < 0 || index >= static_cast<int>(m_items.size()) ||
+        !m_items[static_cast<size_t>(index)].hasSubmenu()) return;
     if (m_submenu && m_submenuIndex == index && m_submenu->isShown()) return;
     if (m_submenu) m_submenu->dismiss();
     m_submenuIndex = index;
     m_submenu = std::make_shared<MenuView>(m_items[static_cast<size_t>(index)].subitems);
+    m_submenu->m_parentMenu = std::static_pointer_cast<MenuView>(shared_from_this());
     m_submenu->setGap(0);
-    m_submenu->setOnDismiss([this] { invalidate(); });
+    m_submenu->setOnDismiss([weak = weak_from_this()] {
+        if (auto parent = weak.lock()) parent->invalidate();
+    });
     // Hung from the row itself (not the whole parent menu) and overlapping it by the panel padding, as
     // macOS's submenus do.
     m_submenu->setAnchorRect(rowRect(index));
@@ -134,21 +145,26 @@ void MenuView::onPointerUp(const PointerEvent& e) {
     m_pressed = -1;
 }
 
-void MenuView::onPointerLeave() { setHighlighted(-1); }
+void MenuView::onPointerLeave() {
+    if (!m_submenu || !m_submenu->isShown()) setHighlighted(-1);
+}
 
 void MenuView::activate(int index) {
     if (index < 0 || index >= static_cast<int>(m_items.size())) return;
     if (!m_items[static_cast<size_t>(index)].enabled || m_items[static_cast<size_t>(index)].isSeparator) return;
     if (m_items[static_cast<size_t>(index)].hasSubmenu()) {
         showSubmenu(index);
+        if (m_submenu && host()) {
+            if (m_submenu->m_highlighted < 0) m_submenu->moveHighlight(1);
+            host()->setFocus(m_submenu.get(), true);
+        }
         return;
     }
-    // A submenu choice closes this menu too.
-    if (m_submenu) m_submenu->dismiss();
     auto action = m_items[static_cast<size_t>(index)].action;
-    auto keep = shared_from_this();  // the action may drop the last outside reference
-    // Brief flash like macOS, then close and run the action.
-    dismiss();
+    auto keep = std::static_pointer_cast<MenuView>(shared_from_this());
+    auto root = keep;
+    while (auto parent = root->m_parentMenu.lock()) root = std::move(parent);
+    root->dismiss();
     if (action) action();
 }
 
@@ -176,11 +192,24 @@ bool MenuView::onKeyDown(const KeyEvent& e) {
             if (m_highlighted >= 0) activate(m_highlighted);
             return true;
         case Key::Right:
-            if (m_highlighted >= 0) showSubmenu(m_highlighted);
+            if (m_highlighted >= 0 && m_items[static_cast<size_t>(m_highlighted)].hasSubmenu()) {
+                showSubmenu(m_highlighted);
+                if (m_submenu && host()) {
+                    if (m_submenu->m_highlighted < 0) m_submenu->moveHighlight(1);
+                    host()->setFocus(m_submenu.get(), true);
+                }
+            }
             return true;
+        case Key::Left:
+            if (auto parent = m_parentMenu.lock()) {
+                dismiss();
+                if (host()) host()->setFocus(parent.get(), true);
+                return true;
+            }
+            return false;
         case Key::Escape:
-            if (m_submenu) m_submenu->dismiss();
             dismiss();
+            if (auto parent = m_parentMenu.lock(); parent && host()) host()->setFocus(parent.get(), true);
             return true;
         default: return false;
     }

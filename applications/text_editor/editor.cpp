@@ -6,61 +6,171 @@
 
 using namespace mayo;
 namespace forma::text {
-TextEditor::TextEditor(std::string value, bool editable) : LabelView(""), m_editable(editable) {
-    setTextTranslationEnabled(false);
-    setText(std::move(value));
+TextEditor::TextEditor(std::string value, bool editable) : m_editable(editable), m_value(std::move(value)) {
     setEditorFont(13);
     setCursor(CursorShape::IBeam);
     setPadding(Insets(7, 40, 20, 16));
 }
 void TextEditor::setValue(std::string value) {
-    setText(std::move(value));
+    cancelComposition();
+    m_value = std::move(value);
+    ++m_version;
     m_caret = std::min(m_caret, text().size());
+    while (m_caret && m_caret < text().size() && (static_cast<unsigned char>(text()[m_caret]) & 192) == 128) --m_caret;
     m_anchor = m_caret;
     m_undo.clear();
     m_redo.clear();
+    m_historyBytes = 0;
+    invalidateLayout();
 }
 void TextEditor::setOnChange(std::function<void(const std::string&)> callback) { m_changed = std::move(callback); }
-Size TextEditor::measureContent(Size available) {
-    auto size = LabelView::measureContent(m_wrap ? available : Size{kInfinity, available.height});
-    if (!m_wrap && std::isfinite(available.width)) size.width = std::max(size.width, available.width);
-    return {m_wrap && std::isfinite(available.width) ? available.width : size.width,
-            std::max(size.height, m_editable ? 200.0f : 20.0f)};
-}
-std::vector<TextEditor::Stop> TextEditor::stops() const {
-    const auto rect = contentRect();
-    const auto lines = render::wrapText(text(), font(), m_wrap ? rect.width + .5f : kInfinity);
-    std::vector<Stop> result;
-    float y = rect.y;
-    for (const auto& line : lines) {
-        std::vector<size_t> boundaries;
-        std::vector<float> positions;
-        render::caretPositions(std::string_view(text()).substr(line.begin, line.end - line.begin), font(), boundaries,
-                               positions);
-        for (size_t i = 0; i < boundaries.size(); ++i)
-            result.push_back({line.begin + boundaries[i], {rect.x + positions[i], y}});
-        y += font().lineHeight;
+void TextEditor::layout(float width) const {
+    width = m_wrap ? width + .5f : kInfinity;
+    if (m_layoutVersion == m_version && m_layoutWidth == width && m_layoutFont == font()) return;
+    m_layoutVersion = m_version;
+    m_layoutWidth = width;
+    m_layoutFont = font();
+    ++m_layoutBuilds;
+    m_lines.clear();
+    m_maxWidth = 0;
+    size_t number = 1, start = 0;
+    const auto value = std::string_view(text());
+    for (;;) {
+        auto end = value.find_first_of("\r\n", start);
+        if (end == std::string_view::npos) end = value.size();
+        for (const auto& line : render::wrapText(value.substr(start, end - start), font(), width)) {
+            m_lines.push_back({start + line.begin, start + line.end, number, line.width, line.begin > 0, {}, {}});
+            m_maxWidth = std::max(m_maxWidth, line.width);
+        }
+        if (end == value.size()) break;
+        start = end + 1;
+        if (value[end] == '\r' && start < value.size() && value[start] == '\n') ++start;
+        ++number;
     }
-    if (result.empty()) result.push_back({0, {rect.x, rect.y}});
-    return result;
+    if (m_lines.empty()) m_lines.push_back({0, 0, 1, 0, false, {}, {}});
 }
-size_t TextEditor::at(Point point) const {
-    size_t index = 0;
-    float nearest = kInfinity;
-    for (const auto& stop : stops()) {
-        float dy = std::abs(stop.position.y + font().lineHeight * .5f - point.y);
-        float score = dy * 10000 + std::abs(stop.position.x - point.x);
-        if (score < nearest) {
-            nearest = score;
-            index = stop.index;
+void TextEditor::layout() const { layout(contentRect().width); }
+void TextEditor::caretLayout(size_t row) const {
+    auto& line = m_lines[row];
+    if (!line.boundaries.empty()) return;
+    ++m_caretBuilds;
+    render::caretPositions(std::string_view(text()).substr(line.begin, line.end - line.begin), font(), line.boundaries,
+                           line.positions);
+}
+size_t TextEditor::lineAt(size_t index) const {
+    layout();
+    auto it = std::upper_bound(m_lines.begin(), m_lines.end(), index,
+                               [](size_t offset, const Line& line) { return offset < line.begin; });
+    return it == m_lines.begin() ? 0 : static_cast<size_t>(it - m_lines.begin() - 1);
+}
+size_t TextEditor::caretLine() const { return lineAt(m_caret); }
+Point TextEditor::pointAt(size_t index) const {
+    const auto row = lineAt(index);
+    caretLayout(row);
+    const auto& line = m_lines[row];
+    const auto it = std::lower_bound(line.boundaries.begin(), line.boundaries.end(), index - line.begin);
+    size_t column = std::min(static_cast<size_t>(it - line.boundaries.begin()), line.positions.size() - 1);
+    auto rect = contentRect();
+    return {rect.x + line.positions[column], rect.y + static_cast<float>(row) * font().lineHeight};
+}
+Point TextEditor::caretPosition() const { return pointAt(m_caret); }
+void TextEditor::preeditLayout() const {
+    if (!isComposing()) return;
+    const auto origin = pointAt(m_preeditOffset);
+    const auto rect = contentRect();
+    const float offset = origin.x - rect.x;
+    if (!m_preeditDirty && m_preeditWidth == rect.width && m_preeditFirstOffset == offset && m_preeditFont == font())
+        return;
+    m_preeditDirty = false;
+    m_preeditWidth = rect.width;
+    m_preeditFirstOffset = offset;
+    m_preeditFont = font();
+    m_preeditLines.clear();
+    const auto value = std::string_view(m_preedit);
+    // The first inline row starts at the document caret; following rows use the
+    // full content width. No document-wide layout is dirtied by a preedit update.
+    const auto first = render::wrapText(value, font(), m_wrap ? std::max(1.0f, rect.width - offset) : kInfinity);
+    const auto add = [&](size_t begin, size_t end, float width) {
+        Line line{begin, end, 0, width, false, {}, {}};
+        render::caretPositions(value.substr(begin, end - begin), font(), line.boundaries, line.positions);
+        m_preeditLines.push_back(std::move(line));
+    };
+    add(first.front().begin, first.front().end, first.front().width);
+    if (first.size() > 1) {
+        const size_t start = first[1].begin;
+        for (const auto& line :
+             render::wrapText(value.substr(start), font(), m_wrap ? std::max(1.0f, rect.width) : kInfinity))
+            add(start + line.begin, start + line.end, line.width);
+    }
+}
+Point TextEditor::inputPosition() const {
+    if (!isComposing()) return caretPosition();
+    preeditLayout();
+    auto it = std::upper_bound(m_preeditLines.begin(), m_preeditLines.end(), m_preeditEnd,
+                               [](size_t index, const Line& line) { return index < line.begin; });
+    const auto row = it == m_preeditLines.begin() ? 0 : static_cast<size_t>(it - m_preeditLines.begin() - 1);
+    const auto& line = m_preeditLines[row];
+    const auto boundary = std::lower_bound(line.boundaries.begin(), line.boundaries.end(), m_preeditEnd - line.begin);
+    const auto column = std::min(static_cast<size_t>(boundary - line.boundaries.begin()), line.positions.size() - 1);
+    const auto origin = pointAt(m_preeditOffset);
+    return {(row == 0 ? origin.x : contentRect().x) + line.positions[column],
+            origin.y + static_cast<float>(row) * font().lineHeight};
+}
+void TextEditor::drawPreedit(Painter& painter) {
+    preeditLayout();
+    const auto& colors = theme().colors;
+    const auto origin = pointAt(m_preeditOffset);
+    const auto metrics = fontMetrics(font());
+    const float baseline = (font().lineHeight - metrics.ascender - metrics.descender) * .5f + metrics.ascender;
+    for (size_t row = 0; row < m_preeditLines.size(); ++row) {
+        const auto& line = m_preeditLines[row];
+        const float x = row == 0 ? origin.x : contentRect().x;
+        const float y = origin.y + static_cast<float>(row) * font().lineHeight;
+        if (y + font().lineHeight < painter.clipBounds().y || y > painter.clipBounds().bottom()) continue;
+        // Opaque inline presentation keeps preedit distinct from underlying
+        // document glyphs and selection without changing the saved buffer.
+        painter.fillRect({x, y, std::max(2.0f, line.width), font().lineHeight}, colors.windowBackground);
+        painter.drawText(std::string_view(m_preedit).substr(line.begin, line.end - line.begin), Point{x, y + baseline},
+                         font(), colors.label);
+        painter.fillRect({x, y + font().lineHeight - 2, std::max(2.0f, line.width), 1}, colors.secondaryLabel);
+        if (m_preeditStart < m_preeditEnd && m_preeditStart <= line.end && m_preeditEnd > line.begin) {
+            const auto xFor = [&](size_t index) {
+                const auto it = std::lower_bound(line.boundaries.begin(), line.boundaries.end(),
+                                                 std::clamp(index, line.begin, line.end) - line.begin);
+                return line.positions[static_cast<size_t>(it - line.boundaries.begin())];
+            };
+            const float start = xFor(m_preeditStart), end = xFor(m_preeditEnd);
+            painter.fillRect({x + start, y + font().lineHeight - 3, std::max(2.0f, end - start), 2}, colors.accent);
         }
     }
-    return index;
+    const auto cursor = inputPosition();
+    painter.fillRect({cursor.x, cursor.y + 2, 1, font().lineHeight - 3}, colors.accent);
+}
+Size TextEditor::measureContent(Size available) {
+    layout(available.width);
+    const float width = m_wrap && std::isfinite(available.width) ? available.width
+                        : std::isfinite(available.width)         ? std::max(std::ceil(m_maxWidth), available.width)
+                                                                 : std::ceil(m_maxWidth);
+    return {width, std::max(static_cast<float>(m_lines.size()) * font().lineHeight, m_editable ? 200.0f : 20.0f)};
+}
+size_t TextEditor::at(Point point) const {
+    layout();
+    const auto rect = contentRect();
+    const auto row = static_cast<size_t>(
+        std::clamp(std::floor((point.y - rect.y) / font().lineHeight), 0.0f, static_cast<float>(m_lines.size() - 1)));
+    caretLayout(row);
+    const auto& line = m_lines[row];
+    const float x = point.x - rect.x;
+    auto it = std::lower_bound(line.positions.begin(), line.positions.end(), x);
+    size_t column = std::min(static_cast<size_t>(it - line.positions.begin()), line.positions.size() - 1);
+    if (column && std::abs(line.positions[column - 1] - x) < std::abs(line.positions[column] - x)) --column;
+    return line.begin + line.boundaries[column];
 }
 size_t TextEditor::before(size_t index, bool word) const {
     if (!index) return 0;
     auto step = [&](size_t i) {
         --i;
+        if (i && text()[i] == '\n' && text()[i - 1] == '\r') --i;
         while (i > 0 && (static_cast<unsigned char>(text()[i]) & 192) == 128) --i;
         return i;
     };
@@ -78,6 +188,7 @@ size_t TextEditor::before(size_t index, bool word) const {
 size_t TextEditor::after(size_t index, bool word) const {
     auto step = [&](size_t i) {
         if (i >= text().size()) return text().size();
+        if (text()[i] == '\r' && i + 1 < text().size() && text()[i + 1] == '\n') ++i;
         ++i;
         while (i < text().size() && (static_cast<unsigned char>(text()[i]) & 192) == 128) ++i;
         return i;
@@ -91,92 +202,87 @@ size_t TextEditor::after(size_t index, bool word) const {
 }
 void TextEditor::draw(Painter& p) {
     const auto& colors = theme().colors;
-    const auto points = stops();
+    layout();
     const auto lo = std::min(m_caret, m_anchor), hi = std::max(m_caret, m_anchor);
-    if (lo == hi) {
-        for (auto it = points.rbegin(); it != points.rend(); ++it)
-            if (it->index == m_caret) {
-                p.fillRect({contentRect().x, it->position.y, contentRect().width, font().lineHeight},
-                           colors.label.withAlpha(.035f));
-                break;
-            }
-    }
-    for (size_t i = 0; i < points.size(); ++i) {
-        auto& s = points[i];
-        if (s.index < lo || s.index >= hi) continue;
-        float width = 5;
-        if (i + 1 < points.size() && points[i + 1].position.y == s.position.y)
-            width = points[i + 1].position.x - s.position.x;
-        p.fillRect({s.position.x, s.position.y, std::max(2.0f, width), font().lineHeight}, colors.textSelection);
-    }
     const auto rect = contentRect();
-    const auto lines = render::wrapText(text(), font(), m_wrap ? rect.width + .5f : kInfinity);
-    const float baseline = (font().lineHeight - fontMetrics(font()).ascender - fontMetrics(font()).descender) * .5f +
-                           fontMetrics(font()).ascender;
-    float y = rect.y;
-    size_t lineNumber = 1;
-    size_t previousEnd = 0;
-    for (const auto& line : lines) {
-        bool continuation = line.begin > 0 && text()[line.begin - 1] != '\n';
-        if (line.begin > previousEnd && text()[line.begin - 1] == '\n') ++lineNumber;
-        if (y + font().lineHeight >= p.clipBounds().y && y <= p.clipBounds().bottom()) {
-            if (m_lineNumbers && !continuation)
-                p.drawText(std::to_string(lineNumber), Rect{frame().x + 4, y, 26, font().lineHeight}, font(),
-                           colors.tertiaryLabel, TextAlign::Trailing);
-            auto value = std::string_view(text()).substr(line.begin, line.end - line.begin);
-            float x = rect.x;
-            size_t start = 0;
-            while (start < value.size()) {
-                size_t end = start + 1;
-                Color color = colors.label;
-                if (m_highlight && value[start] == '"') {
-                    end = value.find('"', start + 1);
-                    end = end == std::string_view::npos ? value.size() : end + 1;
-                    color = colors.green.mix(colors.label, .45f);
-                } else if (m_highlight && (value[start] == '<' || value[start] == '>')) {
-                    color = colors.teal.mix(colors.label, .35f);
-                } else if (m_highlight && (value[start] == '#' || value[start] == '.')) {
-                    while (end < value.size() && (std::isalnum(static_cast<unsigned char>(value[end])) ||
-                                                  value[end] == '-' || value[end] == '_'))
-                        ++end;
-                    color = colors.green.mix(colors.yellow, .3f).mix(colors.label, .2f);
-                } else if (m_highlight &&
-                           (std::isalpha(static_cast<unsigned char>(value[start])) || value[start] == '_')) {
-                    while (end < value.size() && (std::isalnum(static_cast<unsigned char>(value[end])) ||
-                                                  value[end] == '-' || value[end] == ':' || value[end] == '_'))
-                        ++end;
-                    auto next = end;
-                    while (next < value.size() && value[next] == ' ') ++next;
-                    if (next < value.size() && value[next] == '=')
-                        color = colors.pink.mix(colors.label, .3f);
-                    else if (start && (value[start - 1] == '<' ||
-                                       (value[start - 1] == '/' && start > 1 && value[start - 2] == '<')))
-                        color = colors.teal.mix(colors.label, .35f);
-                    if (value.find("<!DOCTYPE") != std::string_view::npos && start < value.find('"'))
-                        color = colors.orange.mix(colors.label, .2f);
-                } else {
-                    if (!m_highlight)
-                        end = value.size();
-                    else
-                        while (end < value.size() && (static_cast<unsigned char>(value[end]) & 192) == 128) ++end;
-                }
-                const auto token = value.substr(start, end - start);
-                p.drawText(token, Point{x, y + baseline}, font(), color);
-                x += p.measureText(token, font());
-                start = end;
-            }
+    const auto clip = p.clipBounds();
+    const auto first = static_cast<size_t>(
+        std::clamp(std::floor((clip.y - rect.y) / font().lineHeight), 0.0f, static_cast<float>(m_lines.size())));
+    const auto last = static_cast<size_t>(
+        std::clamp(std::ceil((clip.bottom() - rect.y) / font().lineHeight), 0.0f, static_cast<float>(m_lines.size())));
+    const auto metrics = fontMetrics(font());
+    const float baseline = (font().lineHeight - metrics.ascender - metrics.descender) * .5f + metrics.ascender;
+    const auto currentRow = caretLine();
+    for (size_t row = first; row < last; ++row) {
+        const auto& line = m_lines[row];
+        const float y = rect.y + static_cast<float>(row) * font().lineHeight;
+        if (lo == hi && row == currentRow)
+            p.fillRect({rect.x, y, rect.width, font().lineHeight}, colors.label.withAlpha(.035f));
+        if (lo < hi && lo <= line.end && hi > line.begin) {
+            caretLayout(row);
+            const auto xFor = [&](size_t index) {
+                auto it = std::lower_bound(line.boundaries.begin(), line.boundaries.end(),
+                                           std::clamp(index, line.begin, line.end) - line.begin);
+                return line.positions[static_cast<size_t>(it - line.boundaries.begin())];
+            };
+            const float x = xFor(lo);
+            const float end = xFor(hi) + (hi > line.end ? 5.0f : 0.0f);
+            p.fillRect({rect.x + x, y, std::max(2.0f, end - x), font().lineHeight}, colors.textSelection);
         }
-        previousEnd = line.end;
-        y += font().lineHeight;
-    }
-    if (isFocused() && m_editable && lo == hi) {
-        for (auto it = points.rbegin(); it != points.rend(); ++it)
-            if (it->index == m_caret) {
-                if (std::fmod(std::max(0.0, now() - m_blink), 1.0) < .55)
-                    p.fillRect({it->position.x, it->position.y + 2, 1, font().lineHeight - 3}, colors.accent);
-                if (host()) host()->setTextInput(true, {it->position.x, it->position.y, 1, font().lineHeight});
-                break;
+        if (m_lineNumbers && !line.continuation)
+            p.drawText(std::to_string(line.number), Rect{frame().x + 4, y, 26, font().lineHeight}, font(),
+                       colors.tertiaryLabel, TextAlign::Trailing);
+        auto value = std::string_view(text()).substr(line.begin, line.end - line.begin);
+        float x = rect.x;
+        size_t start = 0;
+        while (start < value.size()) {
+            size_t end = start + 1;
+            Color color = colors.label;
+            if (m_highlight && value[start] == '"') {
+                end = value.find('"', start + 1);
+                end = end == std::string_view::npos ? value.size() : end + 1;
+                color = colors.green.mix(colors.label, .45f);
+            } else if (m_highlight && (value[start] == '<' || value[start] == '>')) {
+                color = colors.teal.mix(colors.label, .35f);
+            } else if (m_highlight && (value[start] == '#' || value[start] == '.')) {
+                while (end < value.size() &&
+                       (std::isalnum(static_cast<unsigned char>(value[end])) || value[end] == '-' || value[end] == '_'))
+                    ++end;
+                color = colors.green.mix(colors.yellow, .3f).mix(colors.label, .2f);
+            } else if (m_highlight && (std::isalpha(static_cast<unsigned char>(value[start])) || value[start] == '_')) {
+                while (end < value.size() && (std::isalnum(static_cast<unsigned char>(value[end])) ||
+                                              value[end] == '-' || value[end] == ':' || value[end] == '_'))
+                    ++end;
+                auto next = end;
+                while (next < value.size() && value[next] == ' ') ++next;
+                if (next < value.size() && value[next] == '=')
+                    color = colors.pink.mix(colors.label, .3f);
+                else if (start &&
+                         (value[start - 1] == '<' || (value[start - 1] == '/' && start > 1 && value[start - 2] == '<')))
+                    color = colors.teal.mix(colors.label, .35f);
+                if (value.find("<!DOCTYPE") != std::string_view::npos && start < value.find('"'))
+                    color = colors.orange.mix(colors.label, .2f);
+            } else {
+                if (!m_highlight)
+                    end = value.size();
+                else
+                    while (end < value.size() && (static_cast<unsigned char>(value[end]) & 192) == 128) ++end;
             }
+            const auto token = value.substr(start, end - start);
+            p.drawText(token, Point{x, y + baseline}, font(), color);
+            x += p.measureText(token, font());
+            start = end;
+        }
+    }
+    if (isFocused() && m_editable && isComposing()) {
+        drawPreedit(p);
+        const auto point = inputPosition();
+        if (host()) host()->setTextInput(true, {point.x, point.y, 1, font().lineHeight});
+    } else if (isFocused() && m_editable && lo == hi) {
+        const auto point = caretPosition();
+        if (std::fmod(std::max(0.0, now() - m_blink), 1.0) < .55)
+            p.fillRect({point.x, point.y + 2, 1, font().lineHeight - 3}, colors.accent);
+        if (host()) host()->setTextInput(true, {point.x, point.y, 1, font().lineHeight});
         if (host()) host()->scheduleFrame(now() + .5);
     }
     if (m_reveal) {
@@ -185,6 +291,7 @@ void TextEditor::draw(Painter& p) {
     }
 }
 void TextEditor::move(size_t index, bool extending) {
+    cancelComposition();
     m_caret = std::min(index, text().size());
     if (!extending) m_anchor = m_caret;
     m_blink = now();
@@ -193,6 +300,7 @@ void TextEditor::move(size_t index, bool extending) {
     invalidate();
 }
 void TextEditor::selectAll() {
+    cancelComposition();
     m_anchor = 0;
     m_caret = text().size();
     invalidate();
@@ -216,47 +324,126 @@ void TextEditor::onPointerMove(const PointerEvent& e) {
     if (m_dragging) move(at(e.position), true);
 }
 void TextEditor::onPointerUp(const PointerEvent&) { m_dragging = false; }
-void TextEditor::remember() {
-    m_undo.push_back({text(), m_caret, m_anchor});
-    if (m_undo.size() > 100) m_undo.erase(m_undo.begin());
+void TextEditor::apply(const UndoRecord& record, bool undo) {
+    if (record.edits.size() == 1) {
+        const auto& edit = record.edits.front();
+        m_value.replace(edit.offset, undo ? edit.inserted.size() : edit.removed.size(),
+                        undo ? edit.removed : edit.inserted);
+    } else {
+        // A replace-all transaction is linear, not one tail shift per match.
+        // Only the resulting buffer is built; history retains the changed spans.
+        std::string result;
+        result.reserve(m_value.size());
+        size_t cursor = 0, originalCursor = 0;
+        for (const auto& edit : record.edits) {
+            if (undo) {
+                const auto unchanged = edit.offset - originalCursor;
+                result.append(m_value, cursor, unchanged);
+                result += edit.removed;
+                cursor += unchanged + edit.inserted.size();
+                originalCursor = edit.offset + edit.removed.size();
+            } else {
+                result.append(m_value, cursor, edit.offset - cursor);
+                result += edit.inserted;
+                cursor = edit.offset + edit.removed.size();
+            }
+        }
+        result.append(m_value, cursor, std::string::npos);
+        m_value = std::move(result);
+    }
+    m_caret = undo ? record.beforeCaret : record.afterCaret;
+    m_anchor = undo ? record.beforeAnchor : record.afterAnchor;
+}
+void TextEditor::commit(UndoRecord record) {
+    for (const auto& old : m_redo) m_historyBytes -= old.bytes;
     m_redo.clear();
+    for (const auto& edit : record.edits) record.bytes += sizeof(Edit) + edit.removed.size() + edit.inserted.size();
+    m_historyBytes += record.bytes;
+    apply(record, false);
+    m_undo.push_back(std::move(record));
+    // Keep a single large transaction undoable, but never accumulate many full
+    // document replacements. Small keystrokes retain much deeper history.
+    constexpr size_t kHistoryBudget = 8 * 1024 * 1024, kHistoryRecords = 1000;
+    while (m_undo.size() > 1 && (m_historyBytes > kHistoryBudget || m_undo.size() > kHistoryRecords)) {
+        m_historyBytes -= m_undo.front().bytes;
+        m_undo.erase(m_undo.begin());
+    }
+    changed();
 }
 void TextEditor::replaceSelection(std::string value) {
     const size_t lo = std::min(m_caret, m_anchor), hi = std::max(m_caret, m_anchor);
-    auto content = text();
-    content.replace(lo, hi - lo, value);
-    setText(std::move(content));
-    m_caret = lo + value.size();
-    m_anchor = m_caret;
-    changed();
+    if (lo == hi && value.empty()) return;
+    UndoRecord record{{{lo, text().substr(lo, hi - lo), std::move(value)}}, m_caret, m_anchor, 0, 0};
+    record.afterCaret = record.afterAnchor = lo + record.edits.front().inserted.size();
+    commit(std::move(record));
 }
 void TextEditor::insert(std::string value) {
-    if (!m_editable) return;
-    remember();
-    replaceSelection(std::move(value));
+    cancelComposition();
+    if (m_editable) replaceSelection(std::move(value));
 }
 void TextEditor::changed() {
+    ++m_version;
     m_blink = now();
     m_reveal = true;
     if (m_changed) m_changed(text());
     invalidateLayout();
 }
-void TextEditor::restore(std::vector<Snapshot>& from, std::vector<Snapshot>& to) {
+void TextEditor::restore(bool undo) {
+    auto& from = undo ? m_undo : m_redo;
+    auto& to = undo ? m_redo : m_undo;
     if (from.empty()) return;
-    to.push_back({text(), m_caret, m_anchor});
-    auto s = std::move(from.back());
+    auto record = std::move(from.back());
     from.pop_back();
-    setText(std::move(s.value));
-    m_caret = s.caret;
-    m_anchor = s.anchor;
+    apply(record, undo);
+    to.push_back(std::move(record));
     changed();
 }
 bool TextEditor::onTextInput(const TextInputEvent& e) {
     if (!m_editable) return false;
-    insert(e.text);
+    cancelComposition();
+    if (!e.text.empty()) insert(e.text);
     return true;
 }
+bool TextEditor::onTextEditing(const TextEditingEvent& e) {
+    if (!m_editable) return false;
+    if (e.text.empty()) {
+        cancelComposition();
+        return true;
+    }
+    if (!isComposing()) m_preeditOffset = std::min(m_caret, m_anchor);
+    m_preedit = e.text;
+    const auto byteOffset = [&](size_t characters) {
+        size_t i = 0;
+        while (characters && i < m_preedit.size()) {
+            ++i;
+            while (i < m_preedit.size() && (static_cast<unsigned char>(m_preedit[i]) & 192) == 128) ++i;
+            --characters;
+        }
+        return i;
+    };
+    const auto start = static_cast<size_t>(std::max(0, e.start));
+    const auto length = static_cast<size_t>(std::max(0, e.length));
+    m_preeditStart = byteOffset(start);
+    m_preeditEnd = byteOffset(start + length);
+    m_preeditDirty = true;
+    m_reveal = true;
+    if (host()) {
+        const auto point = inputPosition();
+        host()->setTextInput(true, {point.x, point.y, 1, font().lineHeight});
+    }
+    invalidate();
+    return true;
+}
+void TextEditor::cancelComposition() {
+    if (!isComposing()) return;
+    m_preedit.clear();
+    m_preeditLines.clear();
+    m_preeditStart = m_preeditEnd = 0;
+    m_preeditDirty = true;
+    invalidate();
+}
 bool TextEditor::onKeyDown(const KeyEvent& e) {
+    if (isComposing()) return true;
     if (e.primary() && e.key == Key::A) {
         selectAll();
         return true;
@@ -266,7 +453,6 @@ bool TextEditor::onKeyDown(const KeyEvent& e) {
             host()->setClipboardText(
                 text().substr(std::min(m_caret, m_anchor), std::max(m_caret, m_anchor) - std::min(m_caret, m_anchor)));
             if (e.key == Key::X && m_editable) {
-                remember();
                 replaceSelection("");
             }
         }
@@ -278,13 +464,13 @@ bool TextEditor::onKeyDown(const KeyEvent& e) {
     }
     if (e.primary() && e.key == Key::Z && m_editable) {
         if (e.shift())
-            restore(m_redo, m_undo);
+            restore(false);
         else
-            restore(m_undo, m_redo);
+            restore(true);
         return true;
     }
     if (e.primary() && e.key == Key::Y && m_editable) {
-        restore(m_redo, m_undo);
+        restore(false);
         return true;
     }
     if (e.key == Key::Left || e.key == Key::Right) {
@@ -297,27 +483,14 @@ bool TextEditor::onKeyDown(const KeyEvent& e) {
     if (e.key == Key::Home || e.key == Key::End) {
         size_t target = e.key == Key::Home ? 0 : text().size();
         if (!e.primary()) {
-            const auto points = stops();
-            float y = 0;
-            for (auto& s : points)
-                if (s.index == m_caret) y = s.position.y;
-            for (auto& s : points)
-                if (s.position.y == y) {
-                    if (e.key == Key::Home) {
-                        target = s.index;
-                        break;
-                    }
-                    target = s.index;
-                }
+            const auto row = caretLine();
+            target = e.key == Key::Home ? m_lines[row].begin : m_lines[row].end;
         }
         move(target, e.shift());
         return true;
     }
     if (e.key == Key::Up || e.key == Key::Down) {
-        const auto points = stops();
-        Point here{};
-        for (auto& s : points)
-            if (s.index == m_caret) here = s.position;
+        auto here = caretPosition();
         float targetY = here.y + (e.key == Key::Down ? font().lineHeight : -font().lineHeight);
         move(at({here.x, targetY + font().lineHeight * .5f}), e.shift());
         return true;
@@ -332,16 +505,21 @@ bool TextEditor::onKeyDown(const KeyEvent& e) {
         return true;
     }
     if (e.key == Key::Backspace || e.key == Key::Delete) {
-        remember();
+        const auto oldCaret = m_caret, oldAnchor = m_anchor;
         if (m_caret == m_anchor) {
             m_anchor = e.key == Key::Backspace ? before(m_caret, e.primary()) : after(m_caret, e.primary());
         }
-        replaceSelection("");
+        const size_t lo = std::min(m_caret, m_anchor), hi = std::max(m_caret, m_anchor);
+        if (lo != hi)
+            commit({{{lo, text().substr(lo, hi - lo), ""}}, oldCaret, oldAnchor, lo, lo});
+        else
+            m_anchor = oldAnchor;
         return true;
     }
     return false;
 }
 void TextEditor::onFocusChanged(bool focused) {
+    if (!focused) cancelComposition();
     m_blink = now();
     if (host()) host()->setTextInput(focused && m_editable, frame());
     invalidate();
@@ -351,18 +529,21 @@ void TextEditor::revealCaret() {
     for (auto* p = parent(); p; p = p->parent())
         if ((scroll = dynamic_cast<ScrollViewView*>(p))) break;
     if (!scroll) return;
-    auto points = stops();
-    for (auto it = points.rbegin(); it != points.rend(); ++it)
-        if (it->index == m_caret) {
-            auto v = scroll->frame();
-            float dy = 0;
-            if (it->position.y < v.y + 6)
-                dy = it->position.y - v.y - 6;
-            else if (it->position.y + font().lineHeight > v.bottom() - 6)
-                dy = it->position.y + font().lineHeight - v.bottom() + 6;
-            if (dy) scroll->scrollTo({scroll->offset().x, std::max(0.0f, scroll->offset().y + dy)}, false);
-            break;
-        }
+    const auto point = inputPosition();
+    const auto v = scroll->frame();
+    float dy = 0, dx = 0;
+    if (point.y < v.y + 6)
+        dy = point.y - v.y - 6;
+    else if (point.y + font().lineHeight > v.bottom() - 6)
+        dy = point.y + font().lineHeight - v.bottom() + 6;
+    if (!m_wrap) {
+        if (point.x < v.x + 6)
+            dx = point.x - v.x - 6;
+        else if (point.x > v.right() - 6)
+            dx = point.x - v.right() + 6;
+    }
+    if (dy || dx)
+        scroll->scrollTo({std::max(0.0f, scroll->offset().x + dx), std::max(0.0f, scroll->offset().y + dy)}, false);
 }
 void TextEditor::setSelection(size_t anchor, size_t caret) {
     auto boundary = [&](size_t i) {
@@ -384,48 +565,62 @@ bool TextEditor::find(std::string_view query, bool backwards) {
     return true;
 }
 size_t TextEditor::replaceAll(std::string_view query, std::string_view replacement) {
-    if (query.empty()) return 0;
-    auto value = text();
-    size_t count = 0, index = 0;
-    while ((index = value.find(query, index)) != std::string::npos) {
-        value.replace(index, query.size(), replacement);
-        index += replacement.size();
-        ++count;
+    if (!m_editable || query.empty()) return 0;
+    cancelComposition();
+    // Copy potentially aliased views before mutating the buffer.
+    const std::string needle(query), inserted(replacement);
+    UndoRecord record{{}, m_caret, m_anchor, 0, 0};
+    size_t index = 0;
+    while ((index = text().find(needle, index)) != std::string::npos) {
+        record.edits.push_back({index, needle, inserted});
+        index += needle.size();
     }
-    if (count) {
-        remember();
-        setText(std::move(value));
-        m_caret = m_anchor = 0;
-        changed();
-    }
+    const auto count = record.edits.size();
+    if (count) commit(std::move(record));
     return count;
 }
 void TextEditor::setLineNumbers(bool on) {
+    if (m_lineNumbers == on) return;
     m_lineNumbers = on;
     setPadding(Insets(7, on ? 40 : 16, 20, 16));
     invalidateLayout();
 }
 void TextEditor::setWrap(bool on) {
+    if (m_wrap == on) return;
     m_wrap = on;
+    m_preeditDirty = true;
     invalidateLayout();
 }
 void TextEditor::setEditorFont(float size) {
-    setFont(Font{size, FontWeight::Regular, size * 1.5f, systemFontFamily("monospace").value_or(0)});
+    m_font = Font{size, FontWeight::Regular, size * 1.5f, systemFontFamily("monospace").value_or(0)};
+    invalidateLayout();
 }
-size_t TextEditor::lineCount() const { return 1 + static_cast<size_t>(std::count(text().begin(), text().end(), '\n')); }
+void TextEditor::statistics() const {
+    if (m_statisticsVersion == m_version) return;
+    m_statisticsVersion = m_version;
+    m_characters = 0;
+    m_lineStarts = {0};
+    for (size_t i = 0; i < text().size(); ++i) {
+        if ((static_cast<unsigned char>(text()[i]) & 192) != 128) ++m_characters;
+        if (text()[i] == '\n' || (text()[i] == '\r' && (i + 1 == text().size() || text()[i + 1] != '\n')))
+            m_lineStarts.push_back(i + 1);
+    }
+}
+size_t TextEditor::lineCount() const {
+    statistics();
+    return m_lineStarts.size();
+}
 size_t TextEditor::characterCount() const {
-    return static_cast<size_t>(
-        std::count_if(text().begin(), text().end(), [](unsigned char c) { return (c & 192) != 128; }));
+    statistics();
+    return m_characters;
 }
 std::pair<size_t, size_t> TextEditor::location() const {
-    size_t line = 1, column = 1;
-    for (size_t i = 0; i < m_caret; ++i) {
-        if (text()[i] == '\n') {
-            ++line;
-            column = 1;
-        } else if ((static_cast<unsigned char>(text()[i]) & 192) != 128)
-            ++column;
-    }
+    statistics();
+    auto it = std::upper_bound(m_lineStarts.begin(), m_lineStarts.end(), m_caret);
+    const auto line = static_cast<size_t>(it - m_lineStarts.begin());
+    size_t column = 1;
+    for (size_t i = m_lineStarts[line - 1]; i < m_caret; ++i)
+        if ((static_cast<unsigned char>(text()[i]) & 192) != 128) ++column;
     return {line, column};
 }
 std::string TextEditor::selection() const {

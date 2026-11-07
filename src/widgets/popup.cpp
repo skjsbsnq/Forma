@@ -26,6 +26,7 @@ void PopupView::showFrom(Widget& anchor, PopupEdge edge) {
 void PopupView::dismiss() {
     if (!m_shown) return;
     m_shown = false;
+    willDismiss();
     if (m_shownHost) m_shownHost->dismissOverlay(this);
     m_shownHost = nullptr;
     if (m_onDismiss) m_onDismiss();
@@ -33,6 +34,7 @@ void PopupView::dismiss() {
 
 void PopupView::popupDismissed() {
     m_shown = false;
+    willDismiss();
     m_shownHost = nullptr;
     if (m_onDismiss) m_onDismiss();
 }

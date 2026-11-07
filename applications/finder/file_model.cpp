@@ -1,4 +1,5 @@
 #include "file_model.hpp"
+#include "file_transaction.hpp"
 
 #include "applications.hpp"
 
@@ -511,7 +512,7 @@ std::vector<Volume> mountedVolumes() {
 
 std::string uniqueName(const std::string& folder, const std::string& name) {
     std::error_code ec;
-    if (!fs::exists(fs::path(folder) / name, ec)) return name;
+    if (!fs::exists(fs::symlink_status(fs::path(folder) / name, ec))) return name;
     const fs::path p(name);
     std::string stem = p.stem().string();
     std::string ext = p.extension().string();
@@ -521,7 +522,7 @@ std::string uniqueName(const std::string& folder, const std::string& name) {
     }
     for (int i = 2;; ++i) {
         std::string candidate = stem + " " + std::to_string(i) + ext;
-        if (!fs::exists(fs::path(folder) / candidate, ec)) return candidate;
+        if (!fs::exists(fs::symlink_status(fs::path(folder) / candidate, ec))) return candidate;
     }
 }
 
@@ -535,7 +536,8 @@ std::string copyName(const std::string& folder, const std::string& name) {
     }
     std::error_code ec;
     std::string candidate = stem + " 副本" + ext;
-    for (int i = 2; fs::exists(fs::path(folder) / candidate, ec); ++i) candidate = stem + " 副本 " + std::to_string(i) + ext;
+    for (int i = 2; fs::exists(fs::symlink_status(fs::path(folder) / candidate, ec)); ++i)
+        candidate = stem + " 副本 " + std::to_string(i) + ext;
     return candidate;
 }
 
@@ -549,8 +551,32 @@ std::optional<TrashedItem> moveToTrash(const std::string& path, std::string* err
     }
     std::string trash = homeTrash();
     std::error_code ec;
-    fs::create_directories(trash + "/files", ec);
-    fs::create_directories(trash + "/info", ec);
+    auto prepareTrash = [&](const std::string& root) {
+        fs::create_directories(root, ec);
+        if (ec) {
+            if (error) *error = ec.message();
+            return false;
+        }
+        // Validate the parent before creating children, so a Trash symlink cannot redirect even mkdir.
+        struct stat owned{};
+        if (::lstat(root.c_str(), &owned) != 0 || !S_ISDIR(owned.st_mode) || owned.st_uid != ::getuid()) {
+            if (error) *error = "回收站目录无效或不属于当前用户。";
+            return false;
+        }
+        for (const auto& dir : {root + "/files", root + "/info"}) {
+            fs::create_directory(dir, ec);
+            if (ec) {
+                if (error) *error = ec.message();
+                return false;
+            }
+            if (::lstat(dir.c_str(), &owned) != 0 || !S_ISDIR(owned.st_mode) || owned.st_uid != ::getuid()) {
+                if (error) *error = "回收站子目录无效或不属于当前用户。";
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!prepareTrash(trash)) return std::nullopt;
     struct stat trashStat {};
     bool relative = false;
     std::string top;
@@ -558,10 +584,20 @@ std::optional<TrashedItem> moveToTrash(const std::string& path, std::string* err
         // Another file system (USB stick): use its own $topdir/.Trash-$uid so nothing is copied.
         top = mountTop(path);
         trash = top + "/.Trash-" + std::to_string(::getuid());
-        fs::create_directories(trash + "/files", ec);
-        fs::create_directories(trash + "/info", ec);
+        if (!prepareTrash(trash)) return std::nullopt;
         fs::permissions(trash, fs::perms::owner_all, ec);
+        if (ec) {
+            if (error) *error = ec.message();
+            return std::nullopt;
+        }
         relative = true;
+    }
+    transaction::Stamp expected;
+    try {
+        expected = transaction::stamp(path);
+    } catch (const std::exception& e) {
+        if (error) *error = e.what();
+        return std::nullopt;
     }
     const std::string base = fs::path(path).filename().string();
     std::string name = base;
@@ -570,11 +606,18 @@ std::optional<TrashedItem> moveToTrash(const std::string& path, std::string* err
         infoPath = trash + "/info/" + name + ".trashinfo";
         // O_EXCL claims the name atomically, as the spec asks.
         int fd = ::open(infoPath.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
-        if (fd >= 0 && !fs::exists(trash + "/files/" + name, ec)) {
+        if (fd >= 0 && !fs::exists(fs::symlink_status(trash + "/files/" + name, ec))) {
             std::string original = relative ? path.substr(top.size() + (top == "/" ? 0 : 1)) : path;
             std::string info = "[Trash Info]\nPath=" + percentEncode(original) + "\nDeletionDate=" + localTimestamp() + "\n";
-            bool ok = ::write(fd, info.data(), info.size()) == static_cast<ssize_t>(info.size());
-            ::close(fd);
+            size_t offset = 0;
+            while (offset < info.size()) {
+                const auto n = ::write(fd, info.data() + offset, info.size() - offset);
+                if (n < 0 && errno == EINTR) continue;
+                if (n <= 0) break;
+                offset += static_cast<size_t>(n);
+            }
+            bool ok = offset == info.size() && ::fsync(fd) == 0;
+            if (::close(fd) != 0) ok = false;
             if (!ok) {
                 ::unlink(infoPath.c_str());
                 if (error) *error = "无法写入回收站。";
@@ -593,9 +636,14 @@ std::optional<TrashedItem> moveToTrash(const std::string& path, std::string* err
         name = p.stem().string() + "." + std::to_string(i) + p.extension().string();
     }
     const std::string target = trash + "/files/" + name;
-    if (::rename(path.c_str(), target.c_str()) != 0) {
-        if (error) *error = std::strerror(errno);
-        ::unlink(infoPath.c_str());
+    try {
+        transaction::verifiedRename(path, target, expected);
+    } catch (const std::exception& e) {
+        if (error) *error = e.what();
+        // If the safety rollback could not run, keep metadata for the retained Trash object.
+        struct stat retained{};
+        if (::lstat(target.c_str(), &retained) != 0 || !expected.front().id.sameObject(transaction::identity(retained)))
+            ::unlink(infoPath.c_str());
         return std::nullopt;
     }
     return TrashedItem{path, target, infoPath};

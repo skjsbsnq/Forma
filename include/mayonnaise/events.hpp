@@ -77,6 +77,13 @@ struct TextInputEvent {
     std::string text;            ///< UTF-8
 };
 
+/// Uncommitted input-method text; selection offsets count Unicode code points, not UTF-8 bytes.
+struct TextEditingEvent {
+    std::string text;
+    int start = 0;
+    int length = 0;
+};
+
 enum class CursorShape : std::uint8_t {
     Arrow, IBeam, PointingHand, ResizeHorizontal, ResizeVertical, NotAllowed,
     Crosshair, Move, ResizeNWSE, ResizeNESW,

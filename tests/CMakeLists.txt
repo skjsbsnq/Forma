@@ -1,4 +1,4 @@
-add_executable(mayonnaise_tests test_main.cpp test_geometry.cpp test_text.cpp test_layout.cpp test_events.cpp test_widgets.cpp test_images.cpp test_settings.cpp test_fonts.cpp test_background.cpp)
+add_executable(mayonnaise_tests test_main.cpp test_geometry.cpp test_text.cpp test_layout.cpp test_events.cpp test_input_method.cpp test_widgets.cpp test_images.cpp test_settings.cpp test_fonts.cpp test_background.cpp)
 target_link_libraries(mayonnaise_tests PRIVATE mayonnaise::mayonnaise doctest::doctest mayonnaise_stb)
 # The library already compiles stb_image_write's implementation; tests only use the declarations.
 target_include_directories(mayonnaise_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
@@ -34,11 +34,16 @@ add_test(NAME mayonnaise_tests COMMAND mayonnaise_tests)
 
 # Text editor event-level regression tests run without a window or display server.
 add_executable(text_editor_tests ${PROJECT_SOURCE_DIR}/applications/text_editor/test_editor.cpp
-                                ${PROJECT_SOURCE_DIR}/applications/text_editor/editor.cpp)
+                                ${PROJECT_SOURCE_DIR}/applications/text_editor/editor.cpp
+                                ${PROJECT_SOURCE_DIR}/applications/text_editor/file_io.cpp)
 target_link_libraries(text_editor_tests PRIVATE mayonnaise::mayonnaise doctest::doctest)
 mayonnaise_set_warnings(text_editor_tests)
 mayonnaise_set_sanitizers(text_editor_tests)
 add_test(NAME text_editor_tests COMMAND text_editor_tests)
+
+if(TARGET taskmanager_process_tests)
+  add_test(NAME taskmanager_process_tests COMMAND taskmanager_process_tests)
+endif()
 
 # App Store catalogue and UI layout regressions run without a display server.
 if(TARGET forma-app-store)
@@ -67,6 +72,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME finder_volume_tests COMMAND finder_volume_tests)
   add_executable(finder_open_tests test_finder_open.cpp
     test_finder_rename.cpp
+    test_finder_selection.cpp
+    test_finder_ops.cpp
     test_finder_clipboard.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/file_clipboard.cpp
     ${PROJECT_SOURCE_DIR}/applications/finder/archives.cpp

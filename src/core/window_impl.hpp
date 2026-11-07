@@ -86,6 +86,7 @@ struct Window::Impl final : WidgetHost {
     void setClipboardText(const std::string& text) override;
     void setTextInput(bool active, Rect caret) override;
     void setSecureTextInput(bool secure) override;
+    void widgetStateChanged(Widget*) override { dispatcher.validateFocus(); }
     [[nodiscard]] Size windowSize() const override { return platformWindow->sizeInPoints(); }
     [[nodiscard]] float titleBarHeight() const override;
     bool startFileDrag(const std::vector<std::string>& paths) override { return platformWindow->startFileDrag(paths); }

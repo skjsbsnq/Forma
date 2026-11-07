@@ -48,7 +48,7 @@ enum class EventType : std::uint8_t {
     WindowFocusGained, WindowFocusLost, WindowMaximized, WindowRestored, WindowMinimized,
     MouseMove, MouseDown, MouseUp, MouseLeave, Scroll,
     ScrollEnd,           // the fingers left the touchpad (only where the platform reports it)
-    KeyDown, KeyUp, TextInput,
+    KeyDown, KeyUp, TextInput, TextEditing,
     DropFile, DropPosition, DropComplete,
     Pinch,
     Wake,
@@ -69,6 +69,8 @@ struct PlatformEvent {
     Modifiers modifiers = Modifiers::None;
     bool repeat = false;
     std::string text;      // text input, dropped file path
+    int editingStart = 0;
+    int editingLength = 0;
     float scale = 1;       // pinch: scale change since the previous update
 };
 

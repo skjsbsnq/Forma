@@ -22,6 +22,10 @@ public:
     using Base::Base;
     std::function<void()> confirm;
     bool onKeyDown(const KeyEvent& event) override {
+        if (this->host()) {
+            auto* focused = this->host()->focusedWidget();
+            if (focused && focused->isComposing()) return true;
+        }
         if (event.key == Key::Enter && confirm) {
             confirm();
             return true;

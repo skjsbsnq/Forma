@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "file_model.hpp"
+#include "file_transaction.hpp"
 
 namespace finder {
 
@@ -34,6 +35,13 @@ public:
     /// elsewhere keep both ("name 2").
     void copy(std::vector<std::string> sources, std::string folder, Done done = {});
     void move(std::vector<std::string> sources, std::string folder, Done done = {});
+    struct Replacement {
+        std::string target;
+        transaction::Identity identity;
+    };
+    /// One compound transaction per item. Replacement identities come from the confirmation dialog.
+    void transfer(std::vector<std::string> sources, std::string folder, bool move, bool replace, Done done = {},
+                  std::vector<Replacement> replacements = {});
     void trash(std::vector<std::string> paths, Done done = {});
     void putBack(std::vector<std::string> trashedPaths, Done done = {});
     void emptyTrash(Done done = {});
@@ -45,29 +53,34 @@ public:
     /// Total size and item count of a folder, computed in the background.
     void folderSize(const std::string& path, std::function<void(std::uintmax_t bytes, size_t items)> done);
 
-    [[nodiscard]] bool canUndo() const { return !m_undo.empty(); }
+    [[nodiscard]] bool canUndo() const { return !busy() && !m_undo.empty(); }
     [[nodiscard]] std::string undoTitle() const;
     void undo(Done done = {});
 
     [[nodiscard]] bool busy() const { return m_running > 0; }
     [[nodiscard]] const std::string& status() const { return m_status; }
-    /// Called (UI thread) when busy()/status() change and after every operation that touched files.
+    [[nodiscard]] const transaction::Progress& progress() const { return m_progress; }
+    [[nodiscard]] bool cancelling() const { return m_cancelling; }
+    /// Valid in Done: source paths whose transfer completed, excluding partial cross-device moves.
+    [[nodiscard]] const std::vector<std::string>& completedSources() const { return m_completedSources; }
+    /// Cancels queued work and asks the active operation to stop at its next safe checkpoint.
+    void cancel();
+    /// Called (UI thread) when busy()/status()/progress() change and after every operation that touched files.
     std::function<void()> onChanged;
 
 private:
     struct Undo {
-        enum class Kind { Rename, Move, Copy, Trash, NewFolder } kind;
-        std::vector<std::pair<std::string, std::string>> moves;  // from -> to
-        std::vector<TrashedItem> trashed;
-        std::vector<std::string> created;
+        std::vector<transaction::Record> items;
         std::string title;
     };
     struct Result {
         std::vector<std::string> paths;
+        std::vector<std::string> sources;
         std::vector<std::string> errors;
         std::optional<Undo> undo;
+        bool updatingUndo = false;
     };
-    void run(std::string status, std::function<Result()> work, Done done);
+    void run(std::string status, std::function<Result(transaction::Control&)> work, Done done);
     void worker();
 
     mayo::App& m_app;
@@ -75,6 +88,11 @@ private:
     std::vector<Undo> m_undo;
     int m_running = 0;
     std::string m_status;
+    transaction::Progress m_progress;
+    std::vector<std::string> m_completedSources;
+    bool m_cancelling = false;
+    std::uint64_t m_nextTask = 0, m_activeTask = 0;
+    std::vector<std::shared_ptr<transaction::Control>> m_controls;
 
     std::mutex m_mutex;
     std::condition_variable m_cv;

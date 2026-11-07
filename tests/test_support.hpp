@@ -77,6 +77,7 @@ public:
         if (active) secureWhenStarted = secureTextInput;
     }
     void setSecureTextInput(bool secure) override { secureTextInput = secure; }
+    void widgetStateChanged(Widget*) override { dispatcher.validateFocus(); }
     [[nodiscard]] Size windowSize() const override { return {800, 600}; }
     std::string clip;
 

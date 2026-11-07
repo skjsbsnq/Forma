@@ -14,8 +14,33 @@ bool EventDispatcher::attached(const Widget* w) const {
     return std::any_of(m_overlays.begin(), m_overlays.end(), [&](const auto& o) { return o->isAncestorOf(w); });
 }
 
+void EventDispatcher::setRoot(std::shared_ptr<Widget> root) {
+    if (m_root == root) return;
+    setFocus(nullptr, false);
+    m_root = std::move(root);
+}
+
+bool EventDispatcher::inFocusScope(const Widget* w) const {
+    if (!w) return false;
+    if (m_overlays.empty()) return m_root && m_root->isAncestorOf(w);
+    const auto* owner = m_overlays.back()->focusScopeOwner();
+    return std::any_of(m_overlays.begin(), m_overlays.end(), [&](const auto& overlay) {
+        return overlay->focusScopeOwner() == owner && overlay->isAncestorOf(w);
+    });
+}
+
+bool EventDispatcher::validFocus(const Widget* w) const {
+    if (!attached(w) || !inFocusScope(w)) return false;
+    for (auto* ancestor = w; ancestor; ancestor = ancestor->parent()) {
+        if (!ancestor->isVisible() || !ancestor->isEnabled()) return false;
+    }
+    return true;
+}
+
 void EventDispatcher::pushOverlay(std::shared_ptr<Widget> overlay) {
+    m_overlayFocus.push_back({m_focused, m_focusVisible});
     m_overlays.push_back(std::move(overlay));
+    validateFocus();
     refreshHover();
 }
 
@@ -23,15 +48,39 @@ void EventDispatcher::removeOverlay(Widget* overlay) {
     auto it = std::find_if(m_overlays.begin(), m_overlays.end(), [&](const auto& o) { return o.get() == overlay; });
     if (it == m_overlays.end()) return;
     auto keep = *it;  // keep alive through callbacks
+    const size_t index = static_cast<size_t>(it - m_overlays.begin());
+    const bool top = index + 1 == m_overlays.size();
+    const SavedFocus saved = m_overlayFocus[index];
+    if (auto f = m_focused.lock(); f && overlay->isAncestorOf(f.get())) setFocus(nullptr, false);
+    for (size_t i = index + 1; i < m_overlayFocus.size(); ++i) {
+        if (auto previous = m_overlayFocus[i].widget.lock(); previous && overlay->isAncestorOf(previous.get())) {
+            m_overlayFocus[i] = saved;
+        }
+    }
     m_overlays.erase(it);
-    if (auto f = focused(); f && overlay->isAncestorOf(f)) setFocus(nullptr, false);
+    m_overlayFocus.erase(m_overlayFocus.begin() + static_cast<std::ptrdiff_t>(index));
+    if (top) {
+        if (auto previous = saved.widget.lock(); previous && validFocus(previous.get())) {
+            setFocus(previous.get(), saved.visible);
+        } else {
+            validateFocus();
+            if (!focused()) focusNext(false);
+        }
+    } else {
+        validateFocus();
+    }
     refreshHover();
 }
 
 Widget* EventDispatcher::hitTest(Point p) const {
     if (!m_overlays.empty()) {
-        // Modal: only the topmost overlay is interactive.
-        return m_overlays.back()->hitTest(p);
+        const auto* owner = m_overlays.back()->focusScopeOwner();
+        for (auto it = m_overlays.rbegin(); it != m_overlays.rend(); ++it) {
+            if ((*it)->focusScopeOwner() == owner) {
+                if (auto* hit = (*it)->hitTest(p)) return hit;
+            }
+        }
+        return nullptr;
     }
     return m_root ? m_root->hitTest(p) : nullptr;
 }
@@ -49,6 +98,8 @@ Widget* EventDispatcher::captured() const {
 
 Widget* EventDispatcher::focused() const {
     auto w = m_focused.lock();
+    // Layout owners need the old focus while redirecting a newly collapsed control.
+    // Input dispatch separately validates availability and the current overlay scope.
     return w && attached(w.get()) ? w.get() : nullptr;
 }
 
@@ -107,11 +158,14 @@ void EventDispatcher::pointerMove(const PointerEvent& e) {
 void EventDispatcher::pointerDown(const PointerEvent& e) {
     m_lastPointer = e.position;
     m_pointerInside = true;
-    if (!m_overlays.empty() && !m_overlays.back()->frame().contains(e.position)) {
-        // Clicking outside a menu/popover dismisses it and is not delivered (macOS behaviour).
+    if (!m_overlays.empty() && !hitTest(e.position)) {
+        // Outside a menu cascade dismisses the entire cascade, not only its newest submenu.
         auto top = m_overlays.back();
-        if (onOverlayDismissed) onOverlayDismissed(top.get());
-        removeOverlay(top.get());
+        const auto* owner = top->focusScopeOwner();
+        auto found = std::find_if(m_overlays.begin(), m_overlays.end(), [&](const auto& o) { return o.get() == owner; });
+        auto dismissed = found != m_overlays.end() ? *found : top;
+        if (onOverlayDismissed) onOverlayDismissed(dismissed.get());
+        removeOverlay(dismissed.get());
         return;
     }
     updateHover(hitTest(e.position));
@@ -197,7 +251,10 @@ void EventDispatcher::magnify(const MagnifyEvent& e) {
 }
 
 bool EventDispatcher::keyDown(const KeyEvent& e) {
+    if (validateFocus()) return true;
     auto f = lock(focused());
+    // SDL has already delivered this key to the input method; it must not also submit a form or rename.
+    if (f && f->isComposing()) return true;
     Widget* start = f ? f.get() : (!m_overlays.empty() ? m_overlays.back().get() : m_root.get());
     for (Widget* w = start; w; w = w->parent()) {
         if (w->isEnabled() && w->onKeyDown(e)) return true;
@@ -217,11 +274,30 @@ bool EventDispatcher::keyDown(const KeyEvent& e) {
 }
 
 void EventDispatcher::textInput(const TextInputEvent& e) {
+    if (validateFocus()) return;
     if (auto f = lock(focused())) f->onTextInput(e);
 }
 
+void EventDispatcher::textEditing(const TextEditingEvent& e) {
+    if (validateFocus()) return;
+    if (auto f = lock(focused())) f->onTextEditing(e);
+}
+
+void EventDispatcher::cancelComposition() {
+    if (auto f = m_focused.lock()) f->cancelComposition();
+}
+
+bool EventDispatcher::validateFocus() {
+    auto old = m_focused.lock();
+    if (!old || validFocus(old.get())) return false;
+    setFocus(nullptr, false);
+    focusNext(false);
+    return true;
+}
+
 void EventDispatcher::setFocus(Widget* widget, bool visible) {
-    auto old = lock(focused());
+    if (widget && !validFocus(widget)) return;
+    auto old = m_focused.lock();
     m_focusVisible = widget && visible;
     if (old.get() == widget) {
         if (widget) widget->invalidate();
@@ -229,6 +305,7 @@ void EventDispatcher::setFocus(Widget* widget, bool visible) {
     }
     m_focused = widget ? widget->weak_from_this() : std::weak_ptr<Widget>{};
     if (old) {
+        old->cancelComposition();
         old->onFocusChanged(false);
         old->invalidate();
     }

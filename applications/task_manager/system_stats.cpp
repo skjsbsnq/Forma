@@ -1,9 +1,9 @@
 #include "system_stats.hpp"
 
+#include <arpa/inet.h>
 #include <dirent.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
 #include <pwd.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
@@ -12,12 +12,15 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <limits>
+#include <optional>
 #include <set>
 #include <sstream>
 
@@ -52,10 +55,49 @@ bool exists(const std::string& path) {
     return ::stat(path.c_str(), &st) == 0;
 }
 
-std::uint64_t meminfoValue(const std::string& text, const char* key) {
-    size_t at = text.find(key);
-    if (at == std::string::npos) return 0;
-    return std::strtoull(text.c_str() + at + std::strlen(key), nullptr, 10) * 1024;  // kB → bytes
+std::optional<std::uint64_t> meminfoValue(std::string_view text, std::string_view key) {
+    while (!text.empty()) {
+        const size_t end = text.find('\n');
+        auto line = text.substr(0, end);
+        text.remove_prefix(line.size() + (end != std::string_view::npos ? 1 : 0));
+        if (!line.starts_with(key)) continue;
+        line.remove_prefix(key.size());
+        const size_t first = line.find_first_not_of(" \t");
+        if (first == std::string_view::npos) return std::nullopt;
+        line.remove_prefix(first);
+        std::uint64_t value = 0;
+        const auto [tail, error] = std::from_chars(line.data(), line.data() + line.size(), value);
+        if (error != std::errc{} || value > std::numeric_limits<std::uint64_t>::max() / 1024) return std::nullopt;
+        auto unit = line.substr(static_cast<size_t>(tail - line.data()));
+        const size_t unitStart = unit.find_first_not_of(" \t");
+        if (unitStart == std::string_view::npos) return std::nullopt;
+        unit.remove_prefix(unitStart);
+        const size_t unitEnd = unit.find_last_not_of(" \t\r");
+        if (unit.substr(0, unitEnd + 1) != "kB") return std::nullopt;
+        return value * 1024;
+    }
+    return std::nullopt;
+}
+
+std::optional<double> pressureValue(std::string_view text) {
+    while (!text.empty()) {
+        const size_t end = text.find('\n');
+        const auto line = text.substr(0, end);
+        text.remove_prefix(line.size() + (end != std::string_view::npos ? 1 : 0));
+        if (!line.starts_with("some ")) continue;
+        const size_t at = line.find(" avg10=");
+        if (at == std::string_view::npos) return std::nullopt;
+        const auto field = line.substr(at + 7);
+        const auto token = field.substr(0, field.find_first_of(" \t\r"));
+        if (token.empty()) return std::nullopt;
+        double value = 0;
+        const auto [tail, error] = std::from_chars(token.data(), token.data() + token.size(), value);
+        if (error != std::errc{} || tail != token.data() + token.size() || !std::isfinite(value) || value < 0 ||
+            value > 100)
+            return std::nullopt;
+        return value / 100;
+    }
+    return std::nullopt;
 }
 
 }  // namespace
@@ -192,27 +234,36 @@ void Sampler::readCpu(SystemSnapshot& s, double dt) {
 
 // --- memory -----------------------------------------------------------------------------------------
 
+void parseMemoryStats(SystemSnapshot& s, std::string_view meminfo, std::string_view pressure) {
+    const auto total = meminfoValue(meminfo, "MemTotal:");
+    const auto available = meminfoValue(meminfo, "MemAvailable:");
+    const auto buffers = meminfoValue(meminfo, "Buffers:");
+    const auto shared = meminfoValue(meminfo, "Shmem:");
+    const auto cached = meminfoValue(meminfo, "Cached:");
+    const auto reclaimable = meminfoValue(meminfo, "SReclaimable:");
+    s.memoryKnown = total && *total > 0 && available && *available <= *total && buffers && shared && cached &&
+                    reclaimable && *cached <= std::numeric_limits<std::uint64_t>::max() - *reclaimable;
+    s.memTotal = total.value_or(0);
+    s.memAvailable = available.value_or(0);
+    s.memBuffers = buffers.value_or(0);
+    s.memShared = shared.value_or(0);
+    s.memUsed = s.memoryKnown ? s.memTotal - s.memAvailable : 0;
+    const std::uint64_t cache = s.memoryKnown ? *cached + *reclaimable : 0;
+    s.memCached = cache - std::min(cache, s.memShared);
+    const auto swapTotal = meminfoValue(meminfo, "SwapTotal:");
+    const auto swapFree = meminfoValue(meminfo, "SwapFree:");
+    s.swapKnown = swapTotal && swapFree && *swapFree <= *swapTotal;
+    s.swapTotal = swapTotal.value_or(0);
+    s.swapUsed = s.swapKnown ? s.swapTotal - *swapFree : 0;
+    const auto stall = pressureValue(pressure);
+    s.memoryPressureKnown = stall.has_value();
+    s.memoryPressure = stall.value_or(0);
+}
+
 void Sampler::readMemory(SystemSnapshot& s, double dt) {
     std::string text;
-    if (!readFile("/proc/meminfo", text)) return;
-    s.memTotal = meminfoValue(text, "MemTotal:");
-    s.memAvailable = meminfoValue(text, "MemAvailable:");
-    s.memBuffers = meminfoValue(text, "Buffers:");
-    s.memShared = meminfoValue(text, "Shmem:");
-    const std::uint64_t cached = meminfoValue(text, "\nCached:") + meminfoValue(text, "SReclaimable:");
-    s.memCached = cached > s.memShared ? cached - s.memShared : cached;
-    s.memUsed = s.memTotal > s.memAvailable ? s.memTotal - s.memAvailable : 0;
-    s.swapTotal = meminfoValue(text, "SwapTotal:");
-    const std::uint64_t swapFree = meminfoValue(text, "SwapFree:");
-    s.swapUsed = s.swapTotal > swapFree ? s.swapTotal - swapFree : 0;
-
-    // Pressure stall information: share of time tasks waited for memory. Falls back to plain usage.
-    std::string psi = readLine("/proc/pressure/memory");
-    const double used = s.memTotal ? static_cast<double>(s.memUsed) / static_cast<double>(s.memTotal) : 0.0;
-    double stall = 0;
-    if (size_t at = psi.find("avg10="); at != std::string::npos) stall = std::atof(psi.c_str() + at + 6) / 100.0;
-    // Like macOS: green while there's headroom, rising as RAM fills and once tasks start stalling.
-    s.memoryPressure = std::clamp(std::max(stall * 4.0, (used - 0.5) * 1.6), 0.0, 1.0);
+    readFile("/proc/meminfo", text);
+    parseMemoryStats(s, text, readLine("/proc/pressure/memory"));
 
     std::string vm;
     if (readFile("/proc/vmstat", vm)) {
@@ -378,9 +429,10 @@ void Sampler::readProcesses(SystemSnapshot& s, double dt) {
         const pid_t pid = static_cast<pid_t>(std::atoi(e->d_name));
         std::snprintf(path, sizeof path, "/proc/%d/stat", pid);
         if (!readFile(path, text)) continue;  // exited meanwhile
+        const auto identity = parseProcessIdentity(text);
+        if (!identity || identity->pid != pid) continue;
         const size_t open = text.find('(');
         const size_t close = text.rfind(')');
-        if (open == std::string::npos || close == std::string::npos) continue;
 
         ProcessInfo p;
         p.pid = pid;
@@ -391,16 +443,19 @@ void Sampler::readProcesses(SystemSnapshot& s, double dt) {
         unsigned long flags = 0, utime = 0, stime = 0, vsize = 0;
         long threads = 0, rss = 0;
         unsigned long long start = 0;
-        std::sscanf(text.c_str() + close + 2,
-                    "%c %d %*d %*d %*d %*d %lu %*u %*u %*u %*u %lu %lu %*d %*d %*d %*d %ld %*d %llu %lu %ld", &state,
-                    &ppid, &flags, &utime, &stime, &threads, &start, &vsize, &rss);
+        if (std::sscanf(text.c_str() + close + 2,
+                        "%c %d %*d %*d %*d %*d %lu %*u %*u %*u %*u %lu %lu %*d %*d %*d %*d %ld %*d %llu %lu %ld",
+                        &state, &ppid, &flags, &utime, &stime, &threads, &start, &vsize, &rss) != 9 ||
+            start != identity->startTicks)
+            continue;
         p.state = state;
         p.ppid = ppid;
         p.threads = static_cast<int>(threads);
         p.cpuSeconds = static_cast<double>(utime + stime) / tps;
         p.residentBytes = static_cast<std::uint64_t>(std::max(0L, rss)) * static_cast<std::uint64_t>(m_pageSize);
         p.virtualBytes = vsize;
-        p.startedAt = static_cast<double>(start) / tps;
+        p.startTicks = identity->startTicks;
+        p.startedAt = static_cast<double>(p.startTicks) / tps;
         p.isKernelThread = (flags & 0x00200000) != 0;  // PF_KTHREAD
 
         // The owner of /proc/<pid> is the process' effective uid; cheaper than parsing status.
@@ -425,25 +480,24 @@ void Sampler::readProcesses(SystemSnapshot& s, double dt) {
         }
 
         ProcPrev prev;
+        prev.identity = *identity;
         prev.ticks = utime + stime;
         std::snprintf(path, sizeof path, "/proc/%d/io", pid);
         if (readFile(path, text)) {
             auto field = [&](const char* key) {
                 size_t at = text.find(key);
-                return at == std::string::npos ? 0ull : std::strtoull(text.c_str() + at + std::strlen(key), nullptr, 10);
+                return at == std::string::npos ? 0ull
+                                               : std::strtoull(text.c_str() + at + std::strlen(key), nullptr, 10);
             };
             p.ioKnown = prev.ioKnown = true;
             p.bytesRead = prev.read = field("read_bytes: ");
             p.bytesWritten = prev.written = field("write_bytes: ");
         }
-        if (auto it = m_prevProcs.find(pid); it != m_prevProcs.end() && dt > 0) {
-            p.cpuPercent = static_cast<double>(prev.ticks - std::min(prev.ticks, it->second.ticks)) / tps / dt * 100.0;
-            if (p.ioKnown && it->second.ioKnown) {
-                p.readRate = static_cast<double>(p.bytesRead - std::min(p.bytesRead, it->second.read)) / dt;
-                p.writeRate = static_cast<double>(p.bytesWritten - std::min(p.bytesWritten, it->second.written)) / dt;
-            }
-        }
-        next[pid] = prev;
+        const auto it = m_prevProcs.find(pid);
+        const auto rates = processRates(prev, it != m_prevProcs.end() ? &it->second : nullptr, dt, tps);
+        p.cpuPercent = rates.cpuPercent;
+        p.readRate = rates.readRate;
+        p.writeRate = rates.writeRate;
 
         // Open sockets (only countable for processes we may inspect).
         if (!p.isKernelThread && p.uid == s.currentUid) {
@@ -462,6 +516,9 @@ void Sampler::readProcesses(SystemSnapshot& s, double dt) {
                 p.sockets = sockets;
             }
         }
+        // Do not retain mixed counters if this PID exited and was reused while its files were read.
+        if (readProcessIdentity(pid) != identity) continue;
+        next[pid] = prev;
         s.threadCount += p.threads;
         s.processes.push_back(std::move(p));
     }

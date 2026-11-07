@@ -3,12 +3,15 @@
 // Linux system and process statistics from /proc and /sys. A Sampler keeps the previous reading so
 // it can turn cumulative counters (CPU ticks, bytes) into rates.
 
+#include "process_control.hpp"
+
 #include <sys/types.h>
 
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -31,7 +34,8 @@ struct ProcessInfo {
     double readRate = 0;     // bytes per second
     double writeRate = 0;
     int sockets = -1;        // -1: not readable
-    double startedAt = 0;    // seconds since boot
+    std::uint64_t startTicks = 0;  // raw start time, used for process identity
+    double startedAt = 0;    // seconds since boot (display only)
     bool isKernelThread = false;
 };
 
@@ -100,7 +104,10 @@ struct SystemSnapshot {
     std::uint64_t memShared = 0;
     std::uint64_t swapTotal = 0;
     std::uint64_t swapUsed = 0;
-    double memoryPressure = 0;      // 0..1, from PSI when available, else used/total
+    bool memoryKnown = false;  // meminfo values were read and validated
+    bool swapKnown = false;
+    bool memoryPressureKnown = false;
+    double memoryPressure = 0;      // PSI "some" avg10 / 100: fraction of time stalled, not RAM usage
     double swapInRate = 0;          // pages per second
     double swapOutRate = 0;
 
@@ -136,12 +143,7 @@ private:
         std::uint64_t user = 0, nice = 0, system = 0, idle = 0, iowait = 0, irq = 0, softirq = 0, steal = 0;
         [[nodiscard]] std::uint64_t total() const { return user + nice + system + idle + iowait + irq + softirq + steal; }
     };
-    struct ProcPrev {
-        std::uint64_t ticks = 0;
-        std::uint64_t read = 0;
-        std::uint64_t written = 0;
-        bool ioKnown = false;
-    };
+    using ProcPrev = ProcessCounters;
     struct DiskPrev {
         std::uint64_t readSectors = 0, writeSectors = 0, reads = 0, writes = 0;
     };
@@ -173,6 +175,9 @@ private:
     int m_fsCountdown = 0;  // statvfs every few samples is plenty
     std::vector<FileSystem> m_fsCache;
 };
+
+// UI-free parsers shared by the sampler and regression tests. Missing/malformed input stays unknown.
+void parseMemoryStats(SystemSnapshot& s, std::string_view meminfo, std::string_view pressure);
 
 std::string formatBytes(double bytes, int decimals = 1);
 std::string formatRate(double bytesPerSecond);

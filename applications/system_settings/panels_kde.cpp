@@ -70,6 +70,16 @@ bool runTool(std::initializer_list<const char*> names, const std::vector<std::st
     return true;
 }
 
+gx::WriteResult applyTool(std::initializer_list<const char*> names, const std::vector<std::string>& args,
+                          gx::WriteDone done, std::function<gx::WriteResult()> fallback = {}) {
+    const std::string tool = kcfg::findTool(names);
+    if (tool.empty())
+        return fallback ? fallback() : gx::WriteResult::failure("Required Plasma settings tool is not installed");
+    std::vector<std::string> argv{tool};
+    argv.insert(argv.end(), args.begin(), args.end());
+    return gx::runWrite(argv, std::move(done));
+}
+
 std::optional<Color> parseRgb(const std::string& text) {
     auto parts = ui::split(text, ',');
     if (parts.size() < 3) return std::nullopt;
@@ -86,27 +96,35 @@ std::string hexOf(Color c) {
 
 FormRow timeoutRow(const std::string& title, const gx::Key& enabled, const gx::Key& seconds, const std::vector<int>& choices,
                    const std::string& subtitle = {}) {
-    std::vector<std::string> names{"Never"};
-    for (int s : choices) names.push_back(s < 60 ? std::to_string(s) + " seconds" : ui::formatDuration(s));
-    auto picker = Picker(names, 0);
-    auto sync = [enabled, seconds, picker, choices]() mutable {
-        if (!enabled.getBool()) return picker->setSelected(0);
-        const auto secs = seconds.getInt();
+    if (!enabled || !seconds) return ui::pickerRow(title, {}, {}, subtitle);
+    auto backend = std::make_shared<gx::KeyBackend>();
+    backend->type = "i";
+    backend->fallback = "0";
+    backend->read = [enabled, seconds, choices]() -> std::optional<std::string> {
+        if (!enabled.getBool() || choices.empty()) return "0";
         size_t best = 0;
         for (size_t i = 1; i < choices.size(); ++i) {
-            if (std::abs(choices[i] - secs) < std::abs(choices[best] - secs)) best = i;
+            if (std::abs(choices[i] - seconds.getInt()) < std::abs(choices[best] - seconds.getInt())) best = i;
         }
-        picker->setSelected(static_cast<int>(best) + 1);
+        return std::to_string(best + 1);
     };
-    sync();
-    picker.onChange([enabled, seconds, choices](int i) {
+    backend->writable = [enabled, seconds] { return enabled.writable() && seconds.writable(); };
+    backend->write = [enabled, seconds, choices](const std::optional<std::string>& value, gx::WriteDone) {
+        const int i = value ? std::atoi(value->c_str()) : 0;
         if (i == 0) return enabled.set(false);
-        seconds.setInt(choices[static_cast<size_t>(i - 1)]);
-        enabled.set(true);
-    });
-    enabled.watch(sync);
-    seconds.watch(sync);
-    return FormRow(title, picker, subtitle);
+        if (i < 0 || i > static_cast<int>(choices.size())) return gx::WriteResult::failure("Invalid timeout");
+        auto result = seconds.setInt(choices[static_cast<size_t>(i - 1)]);
+        return result.ok() ? enabled.set(true) : result;
+    };
+    backend->watch = [enabled, seconds](std::function<void()> fn) {
+        enabled.watch(fn);
+        seconds.watch(std::move(fn));
+    };
+    std::vector<ui::Option> options{{"Never", "0"}};
+    for (size_t i = 0; i < choices.size(); ++i)
+        options.push_back({choices[i] < 60 ? std::to_string(choices[i]) + " seconds" : ui::formatDuration(choices[i]),
+                           std::to_string(i + 1)});
+    return ui::pickerRow(title, gx::Key(backend), options, subtitle);
 }
 
 // Pointer devices (KWin) -------------------------------------------------------------------------------------
@@ -161,12 +179,24 @@ gx::Key deviceKey(const std::vector<std::string>& paths, const std::string& prop
         if (!v) return std::nullopt;
         return variantText(v.get());
     };
-    b->write = [paths, prop, type](const std::optional<std::string>& text) {
-        if (!text) return;
+    b->write = [paths, prop, type](const std::optional<std::string>& text, gx::WriteDone done) {
+        if (!text) return gx::WriteResult::failure("This device property cannot be reset");
+        struct Batch {
+            size_t left;
+            gx::WriteResult result;
+            gx::WriteDone done;
+        };
+        auto batch = std::make_shared<Batch>(Batch{paths.size(), {}, std::move(done)});
         for (const auto& p : paths) {
             GVariant* v = type == "b" ? g_variant_new_boolean(*text == "true") : g_variant_new_double(g_ascii_strtod(text->c_str(), nullptr));
-            gx::setProperty(gx::sessionBus(), kKWin, p.c_str(), kInputDevice, prop.c_str(), v);
+            gx::setProperty(gx::sessionBus(), kKWin, p.c_str(), kInputDevice, prop.c_str(), v,
+                            [batch](gx::Variant, const std::string& error) {
+                                if (!error.empty() && batch->result.ok())
+                                    batch->result = gx::WriteResult::failure(error);
+                                if (--batch->left == 0 && batch->done) batch->done(batch->result);
+                            });
         }
+        return gx::WriteResult{gx::WriteStatus::Pending, {}};
     };
     return gx::Key(b, prop);
 }
@@ -353,15 +383,18 @@ int accentIndex(const std::string& rgb) {
 
 Element styleSection() {
     auto schemes = std::make_shared<std::vector<ColorScheme>>(colorSchemes());
-    auto applyScheme = [](const std::string& id) {
-        if (!runTool({"plasma-apply-colorscheme"}, {id})) kcfg::write("kdeglobals", "General", "ColorScheme", id, Reload::Style);
+    auto applyScheme = [](const std::string& id, gx::WriteDone done) {
+        return applyTool({"plasma-apply-colorscheme"}, {id}, std::move(done),
+                         [id] { return kcfg::write("kdeglobals", "General", "ColorScheme", id, Reload::Style); });
     };
     gx::Key scheme = kcfg::appliedKey("kdeglobals", "General", "ColorScheme", "s", "BreezeLight", applyScheme);
-    gx::Key accent = kcfg::appliedKey("kdeglobals", "General", "AccentColor", "s", "", [](const std::string& rgb) {
-        auto c = parseRgb(rgb);
-        if (!c || !runTool({"plasma-apply-colorscheme"}, {"--accent-color", hexOf(*c)}))
-            kcfg::write("kdeglobals", "General", "AccentColor", rgb, Reload::Style);
-    });
+    gx::Key accent = kcfg::appliedKey(
+        "kdeglobals", "General", "AccentColor", "s", "", [](const std::string& rgb, gx::WriteDone done) {
+            auto c = parseRgb(rgb);
+            if (!c) return kcfg::write("kdeglobals", "General", "AccentColor", rgb, Reload::Style);
+            return applyTool({"plasma-apply-colorscheme"}, {"--accent-color", hexOf(*c)}, std::move(done),
+                             [rgb] { return kcfg::write("kdeglobals", "General", "AccentColor", rgb, Reload::Style); });
+        });
 
     auto find = [schemes](const std::string& preferred, bool dark) -> std::string {
         for (const auto& s : *schemes) {
@@ -391,10 +424,12 @@ Element styleSection() {
         p.drawText(mayo::uiText(i == 0 ? "Light" : "Dark"), {cell.x, preview.bottom() + 5, cell.width, 16}, f,
                    selected ? c.label : c.secondaryLabel, TextAlign::Center);
     });
-    auto syncStyle = [scheme, styles, isDark] { styles->setSelected(isDark(scheme.getString()) ? 1 : 0); };
-    syncStyle();
     styles.onChoose([scheme, lightId, darkId](int i) { scheme.setString(i == 1 ? darkId : lightId); });
-    scheme.watch(syncStyle);
+    auto styleRow =
+        ui::boundRow("Appearance", scheme, styles, {},
+                     [weak = std::weak_ptr<ui::ChoiceGridView>(styles.node()), isDark](const gx::Key& key, bool) {
+                         if (auto grid = weak.lock()) grid->setSelected(isDark(key.getString()) ? 1 : 0);
+                     });
 
     std::vector<ui::Option> schemeOptions;
     for (const auto& s : *schemes) schemeOptions.push_back({s.name, s.id});
@@ -408,29 +443,33 @@ Element styleSection() {
         else if (hovered) p.strokeCircle(ctr, 13.5f, theme().colors.secondaryFill, 2);
     });
     dots.caption([](int i) { return i >= 0 ? std::string(kPlasmaAccents[i].name) : std::string("From Color Scheme"); });
-    auto syncAccent = [accent, dots, styles] {
-        dots->setSelected(accentIndex(accent.getString()));
-        styles->invalidate();
-    };
-    syncAccent();
     dots.onChoose([accent](int i) {
         const Color c = kPlasmaAccents[i].color;
         accent.setString(std::to_string(std::lround(c.r * 255)) + "," + std::to_string(std::lround(c.g * 255)) + "," +
                          std::to_string(std::lround(c.b * 255)));
     });
-    accent.watch(syncAccent);
+    auto accentRow =
+        ui::boundRow("Accent Color", accent, dots, {},
+                     [weak = std::weak_ptr<ui::ChoiceGridView>(dots.node()),
+                      preview = std::weak_ptr<ui::ChoiceGridView>(styles.node())](const gx::Key& key, bool) {
+                         if (auto grid = weak.lock()) grid->setSelected(accentIndex(key.getString()));
+                         if (auto grid = preview.lock()) grid->invalidate();
+                     });
 
-    std::vector<Element> rows{FormRow(HStack({Spacer(), styles, Spacer()})), FormRow("Accent Color", dots)};
+    std::vector<Element> rows{styleRow, accentRow};
     if (!schemeOptions.empty()) rows.push_back(ui::pickerRow("Color Scheme", scheme, schemeOptions));
 
     // Global themes bundle colours, icons, Plasma style and layout.
     std::vector<ui::Option> globals;
     for (const auto& dir : packages("plasma/look-and-feel")) globals.push_back({packageName(dir, dir.filename().string()), dir.filename().string()});
     if (!globals.empty() && !kcfg::findTool({"plasma-apply-lookandfeel"}).empty()) {
-        rows.push_back(ui::pickerRow("Global Theme",
-                                     kcfg::appliedKey("kdeglobals", "KDE", "LookAndFeelPackage", "s", "org.kde.breeze.desktop",
-                                                      [](const std::string& id) { runTool({"plasma-apply-lookandfeel"}, {"-a", id}); }),
-                                     globals, "Applies colours, icons, Plasma style and cursors together"));
+        rows.push_back(ui::pickerRow(
+            "Global Theme",
+            kcfg::appliedKey("kdeglobals", "KDE", "LookAndFeelPackage", "s", "org.kde.breeze.desktop",
+                             [](const std::string& id, gx::WriteDone done) {
+                                 return applyTool({"plasma-apply-lookandfeel"}, {"-a", id}, std::move(done));
+                             }),
+            globals, "Applies colours, icons, Plasma style and cursors together"));
     }
     return ui::section("Style", rows);
 }
@@ -516,20 +555,22 @@ Element backgroundSection(Context& ctx) {
                                });
     grid.wraps().caption([walls](int i) { return (*walls)[static_cast<size_t>(i)].name; });
 
-    auto sync = [walls, grid] {
-        std::string current;
-        for (const auto& g : wallpaperGroups()) {
-            if (auto v = kcfg::read(kAppletsRc, g, "Image")) {
-                current = normalizePath(*v);
-                break;
-            }
-        }
-        int sel = -1;
-        for (size_t i = 0; i < walls->size(); ++i) {
-            if (normalizePath((*walls)[i].target) == current) sel = static_cast<int>(i);
-        }
-        grid->setSelected(sel);
-    };
+    const auto groups = wallpaperGroups();
+    if (groups.empty()) return {};
+    auto key = kcfg::appliedKey(kAppletsRc, groups.front(), "Image", "s", "",
+                                [](const std::string& target, gx::WriteDone done) {
+                                    return applyTool({"plasma-apply-wallpaperimage"}, {target}, std::move(done));
+                                });
+    auto pictureRow =
+        ui::boundRow("Desktop Picture", key, grid, {},
+                     [walls, weak = std::weak_ptr<ui::ChoiceGridView>(grid.node())](const gx::Key& k, bool) {
+                         const std::string current = normalizePath(k.getString());
+                         int sel = -1;
+                         for (size_t i = 0; i < walls->size(); ++i) {
+                             if (normalizePath((*walls)[i].target) == current) sel = static_cast<int>(i);
+                         }
+                         if (auto view = weak.lock()) view->setSelected(sel);
+                     });
     auto loadThumbs = [walls, grid](size_t from) {
         for (size_t i = from; i < walls->size(); ++i) {
             gx::background([walls, grid, i, path = (*walls)[i].preview] {
@@ -542,13 +583,14 @@ Element backgroundSection(Context& ctx) {
             });
         }
     };
-    auto apply = [](const Wallpaper& w) { runTool({"plasma-apply-wallpaperimage"}, {w.target}); };
-    sync();
+    auto apply = [key](const Wallpaper& w) { key.setString(w.target); };
     loadThumbs(0);
     grid.onChoose([walls, apply](int i) { apply((*walls)[static_cast<size_t>(i)]); });
-    for (const auto& g : wallpaperGroups()) kcfg::watch(kAppletsRc, g, "Image", sync);
 
-    auto add = Button(Icon::Plus, "Add Picture…");
+    auto add = Button(Icon::Plus, "Add Picture…").disabled(!key.writable());
+    key.watchWrite([weak = std::weak_ptr<ButtonView>(add.node())](const gx::Key& k, const gx::WriteResult&) {
+        if (auto b = weak.lock()) b->setDisabled(!k.writable() || k.pending());
+    });
     add.onClick([&app = ctx.app, &window = ctx.window, walls, grid, apply, loadThumbs] {
         app.openFiles({{"Images", "png;jpg;jpeg;webp;jxl;svg;avif"}}, true,
                       [walls, grid, apply, loadThumbs](std::vector<std::string> paths) {
@@ -571,7 +613,7 @@ Element backgroundSection(Context& ctx) {
                       },
                       &window);
     });
-    return ui::section("Wallpaper", {FormRow(grid).padding(Insets(10, 8)), FormRow(HStack({Spacer(), add}))},
+    return ui::section("Wallpaper", {pictureRow.padding(Insets(10, 8)), FormRow(HStack({Spacer(), add}))},
                        "Applies to every desktop; Plasma's lock screen keeps its own wallpaper.");
 }
 
@@ -592,12 +634,6 @@ FormRow qtFontRow(const std::string& title, const std::string& group, const std:
     std::vector<std::string> sizes;
     for (int s = 6; s <= 24; ++s) sizes.push_back(std::to_string(s));
     auto size = Picker(sizes, 0);
-    auto sync = [fields, button, size]() mutable {
-        const auto f = fields();
-        button.setTitle(f[0]);
-        size->setSelected(std::clamp(std::atoi(f[1].c_str()), 6, 24) - 6);
-    };
-    sync();
     button.onClick([key, fields, join, anchor = ui::Anchor(button)] {
         std::vector<ui::Option> items;
         for (const auto& f : shared::fontFamilies()) items.push_back({f, f});
@@ -612,8 +648,15 @@ FormRow qtFontRow(const std::string& title, const std::string& group, const std:
         f[1] = std::to_string(i + 6);
         key.setString(join(f));
     });
-    key.watch(sync);
-    return FormRow(title, HStack({button, size}).spacing(6).align(Alignment::Center));
+    return ui::boundRow(title, key, HStack({button, size}).spacing(6).align(Alignment::Center), {},
+                        [weakButton = std::weak_ptr<ButtonView>(button.node()),
+                         weakSize = std::weak_ptr<PickerView>(size.node())](const gx::Key& k, bool) {
+                            auto f = ui::split(k.getString(), ',');
+                            if (f.size() < 2) f.push_back("10");
+                            if (auto b = weakButton.lock()) b->setTitle(f[0]);
+                            if (auto p = weakSize.lock())
+                                p->setSelected(std::clamp(std::atoi(f[1].c_str()), 6, 24) - 6);
+                        });
 }
 
 Element fontsSection() {
@@ -651,21 +694,40 @@ Element themesSection() {
     }
 
     std::vector<Element> rows{
-        ui::pickerRow("Icons", kcfg::appliedKey("kdeglobals", "Icons", "Theme", "s", "breeze", [](const std::string& t) {
-                          if (!runTool({"plasma-changeicons"}, {t})) kcfg::write("kdeglobals", "Icons", "Theme", t, Reload::Icons);
-                      }), icons),
-        ui::pickerRow("Cursor", kcfg::appliedKey("kcminputrc", "Mouse", "cursorTheme", "s", "breeze_cursors", [](const std::string& t) {
-                          if (!runTool({"plasma-apply-cursortheme"}, {t})) kcfg::write("kcminputrc", "Mouse", "cursorTheme", t, Reload::Cursor);
-                      }), cursors),
+        ui::pickerRow("Icons",
+                      kcfg::appliedKey("kdeglobals", "Icons", "Theme", "s", "breeze",
+                                       [](const std::string& t, gx::WriteDone done) {
+                                           return applyTool({"plasma-changeicons"}, {t}, std::move(done), [t] {
+                                               return kcfg::write("kdeglobals", "Icons", "Theme", t, Reload::Icons);
+                                           });
+                                       }),
+                      icons),
+        ui::pickerRow("Cursor",
+                      kcfg::appliedKey("kcminputrc", "Mouse", "cursorTheme", "s", "breeze_cursors",
+                                       [](const std::string& t, gx::WriteDone done) {
+                                           return applyTool({"plasma-apply-cursortheme"}, {t}, std::move(done), [t] {
+                                               return kcfg::write("kcminputrc", "Mouse", "cursorTheme", t,
+                                                                  Reload::Cursor);
+                                           });
+                                       }),
+                      cursors),
         ui::pickerRow("Cursor Size", kcfg::key("kcminputrc", "Mouse", "cursorSize", "i", "24", Reload::Cursor),
-                      {{"Default (24)", "24"}, {"Medium (32)", "32"}, {"Large (48)", "48"}, {"Larger (64)", "64"}, {"Largest (96)", "96"}}),
-        ui::pickerRow("Application Style", kcfg::key("kdeglobals", "KDE", "widgetStyle", "s", "Breeze", Reload::Style), widgetStyles,
-                      "Qt widget style; restart apps to see it everywhere"),
+                      {{"Default (24)", "24"},
+                       {"Medium (32)", "32"},
+                       {"Large (48)", "48"},
+                       {"Larger (64)", "64"},
+                       {"Largest (96)", "96"}}),
+        ui::pickerRow("Application Style", kcfg::key("kdeglobals", "KDE", "widgetStyle", "s", "Breeze", Reload::Style),
+                      widgetStyles, "Qt widget style; restart apps to see it everywhere"),
     };
     if (!plasmaStyles.empty() && !kcfg::findTool({"plasma-apply-desktoptheme"}).empty()) {
-        rows.push_back(ui::pickerRow("Plasma Style", kcfg::appliedKey("plasmarc", "Theme", "name", "s", "default", [](const std::string& t) {
-                                         runTool({"plasma-apply-desktoptheme"}, {t});
-                                     }), plasmaStyles, "Panels and widgets"));
+        rows.push_back(ui::pickerRow("Plasma Style",
+                                     kcfg::appliedKey("plasmarc", "Theme", "name", "s", "default",
+                                                      [](const std::string& t, gx::WriteDone done) {
+                                                          return applyTool({"plasma-apply-desktoptheme"}, {t},
+                                                                           std::move(done));
+                                                      }),
+                                     plasmaStyles, "Panels and widgets"));
     }
     return ui::section("Themes", rows);
 }
@@ -807,9 +869,11 @@ Element notificationsPanel(Context& /*ctx*/) {
         g_date_time_unref(now);
         return active ? "true" : "false";
     };
-    dndBackend->write = [](const std::optional<std::string>& v) {
-        kcfg::write(kRc, "DoNotDisturb", "Until", v && *v == "true" ? std::optional<std::string>("2099,12,31,23,59,0") : std::nullopt);
+    dndBackend->write = [](const std::optional<std::string>& v, gx::WriteDone) {
+        return kcfg::write(kRc, "DoNotDisturb", "Until",
+                           v && *v == "true" ? std::optional<std::string>("2099,12,31,23,59,0") : std::nullopt);
     };
+    dndBackend->writable = [] { return kcfg::writable(kRc, "DoNotDisturb", "Until"); };
     dndBackend->watch = [](std::function<void()> fn) { kcfg::watch(kRc, "DoNotDisturb", "Until", std::move(fn)); };
 
     auto apps = std::make_shared<ui::DynamicSection>("App Notifications", "No apps have sent notifications yet.");
@@ -830,7 +894,9 @@ Element notificationsPanel(Context& /*ctx*/) {
     for (const auto& e : entries) {
         gx::Key show = kcfg::key(kRc, e.group, "ShowPopups", "b", "true");
         auto toggle = Toggle("", show.getBool(true)).onChange([show](bool on) { show.set(on); });
-        show.watch([show, toggle]() mutable { toggle.setOn(show.getBool(true)); });
+        ui::bindControl(show, toggle, [weak = std::weak_ptr<ToggleView>(toggle.node())](const gx::Key& k, bool) {
+            if (auto control = weak.lock()) control->setOn(k.getBool(true));
+        });
         auto row = ui::ClickRow({ui::letterTile(e.name), Label(e.name), Spacer(), toggle});
         row.onClick([anchor = ui::Anchor(row), group = e.group, name = e.name] {
             auto details = ui::section(name, {
@@ -874,11 +940,17 @@ Element searchPanel(Context& /*ctx*/) {
     indexing->type = "b";
     indexing->fallback = "true";
     indexing->read = [] { return kcfg::read(kBaloo, "Basic Settings", "Indexing-Enabled"); };
-    indexing->write = [](const std::optional<std::string>& v) {
-        const bool on = !v || *v == "true";
-        kcfg::write(kBaloo, "Basic Settings", "Indexing-Enabled", on ? "true" : "false");
-        runTool({"balooctl6", "balooctl"}, {on ? "enable" : "disable"});
+    auto indexingApply = kcfg::appliedKey(
+        kBaloo, "Basic Settings", "Indexing-Enabled", "b", "true", [](const std::string& value, gx::WriteDone done) {
+            const bool on = value == "true";
+            return applyTool({"balooctl6", "balooctl"}, {on ? "enable" : "disable"}, std::move(done), [on] {
+                return kcfg::write(kBaloo, "Basic Settings", "Indexing-Enabled", on ? "true" : "false");
+            });
+        });
+    indexing->write = [indexingApply](const std::optional<std::string>& v, gx::WriteDone done) {
+        return v ? indexingApply.setText(*v, std::move(done)) : indexingApply.reset(std::move(done));
     };
+    indexing->writable = [] { return kcfg::writable(kBaloo, "Basic Settings", "Indexing-Enabled"); };
     indexing->watch = [](std::function<void()> fn) { kcfg::watch(kBaloo, "Basic Settings", "Indexing-Enabled", std::move(fn)); };
     return ui::page({
         ui::section("File Search",
@@ -956,7 +1028,8 @@ Element mousePanel(Context& /*ctx*/) {
     return ui::page(sections);
 }
 
-// Keyboard -------------------------------------------------------------------------------------------------------------
+// Keyboard
+// -------------------------------------------------------------------------------------------------------------
 
 Element keyboardPanel(Context& ctx) {
     auto layouts = std::make_shared<KdeLayouts>();
@@ -1001,7 +1074,8 @@ Element keyboardPanel(Context& ctx) {
         layouts);
 }
 
-// Accessibility -----------------------------------------------------------------------------------------------------------
+// Accessibility
+// -----------------------------------------------------------------------------------------------------------
 
 Element accessibilityPanel(Context& /*ctx*/) {
     auto access = [](const std::string& group, const std::string& key, const std::string& fallback) {
@@ -1036,7 +1110,8 @@ Element accessibilityPanel(Context& /*ctx*/) {
     });
 }
 
-// Privacy & Security --------------------------------------------------------------------------------------------------------
+// Privacy & Security
+// --------------------------------------------------------------------------------------------------------
 
 Element privacyPanel(Context& ctx) {
     auto locker = [](const std::string& key, const std::string& type, const std::string& fallback) {
@@ -1091,7 +1166,8 @@ Element removableMediaSection() {
                                       "Drives that were mounted before")});
 }
 
-// Power (PowerDevil) ------------------------------------------------------------------------------------------------------------
+// Power (PowerDevil)
+// ------------------------------------------------------------------------------------------------------------
 
 std::vector<Element> powerSections() {
     constexpr const char* kRc = "powerdevilrc";
@@ -1126,7 +1202,8 @@ std::vector<Element> powerSections() {
     return out;
 }
 
-// Displays: Night Light ------------------------------------------------------------------------------------------------------------
+// Displays: Night Light
+// ------------------------------------------------------------------------------------------------------------
 
 Element nightLightSection() {
     std::vector<ui::Option> hours;
@@ -1153,7 +1230,8 @@ Element nightLightSection() {
                         ui::sliderRow("Color Temperature", kwin("NightColor", "NightTemperature", "i", "4500"), 1000, 6500, 100, "Left is warmer")});
 }
 
-// Network: proxy --------------------------------------------------------------------------------------------------------------------
+// Network: proxy
+// --------------------------------------------------------------------------------------------------------------------
 
 Element proxySection() {
     constexpr const char* kRc = "kioslaverc";
@@ -1183,7 +1261,8 @@ Element proxySection() {
         .spacing(22);
 }
 
-// Sound ------------------------------------------------------------------------------------------------------------------------------
+// Sound
+// ------------------------------------------------------------------------------------------------------------------------------
 
 Element soundsSection() {
     return ui::section("Sounds", {ui::toggleRow("Volume Feedback", kcfg::key("plasmaparc", "General", "AudioFeedback", "b", "true"),

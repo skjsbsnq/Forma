@@ -234,6 +234,7 @@ void Window::Impl::handleEvent(const platform::PlatformEvent& event) {
             requestLayout();
             break;
         case EventType::WindowFocusLost:
+            dispatcher.cancelComposition();
             keyWindow = false;
             root->notifyThemeChanged();
             requestLayout();
@@ -319,6 +320,9 @@ void Window::Impl::handleEvent(const platform::PlatformEvent& event) {
             break;
         }
         case EventType::TextInput: dispatcher.textInput(TextInputEvent{event.text}); break;
+        case EventType::TextEditing:
+            dispatcher.textEditing(TextEditingEvent{event.text, event.editingStart, event.editingLength});
+            break;
         case EventType::Pinch:
             hideTooltip();
             dispatcher.magnify(MagnifyEvent{pointer, event.scale});

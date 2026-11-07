@@ -42,6 +42,9 @@ public:
     void onPointerUp(const PointerEvent& e) override;
     bool onKeyDown(const KeyEvent& e) override;
     bool onTextInput(const TextInputEvent& e) override;
+    bool onTextEditing(const TextEditingEvent& e) override;
+    [[nodiscard]] bool isComposing() const override { return !m_editing.text.empty(); }
+    void cancelComposition() override;
     void onFocusChanged(bool focused) override;
 
     // Editing primitives (public for tests and programmatic control).
@@ -55,6 +58,7 @@ protected:
 
 private:
     [[nodiscard]] std::string displayText() const;
+    [[nodiscard]] float compositionCaret();
     [[nodiscard]] Rect textRect() const;
     [[nodiscard]] Rect clearButtonRect() const;
     [[nodiscard]] size_t indexAt(float x);
@@ -69,6 +73,7 @@ private:
     void updateLayoutCache();
 
     std::string m_text;
+    TextEditingEvent m_editing;
     std::string m_placeholder;
     TextFieldStyle m_style = TextFieldStyle::Rounded;
     bool m_secure = false;

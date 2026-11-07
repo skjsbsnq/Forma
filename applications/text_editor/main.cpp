@@ -5,9 +5,12 @@
 #include <mayonnaise/mayonnaise.hpp>
 #include <sstream>
 #include "editor.hpp"
+#include "file_io.hpp"
 #include "i18n.hpp"
 
 using namespace mayo;
+using forma::text::FileStatus;
+using forma::text::FileVersion;
 using forma::text::message;
 using forma::text::TextEditor;
 using forma::text::translate;
@@ -49,7 +52,7 @@ const char* sample = R"SVG(<?xml version="1.0" encoding="utf-8"?>
 class Strip final : public Widget {
 public:
     bool tabs = false;
-    std::string title, status, compactStatus;
+    std::string title, status, compactStatus, encoding = "UTF-8 · LF";
     std::function<void()> onNew;
     Size measureContent(Size available) override { return {available.width, tabs ? 36.0f : 32.0f}; }
     bool expandsContent(Axis axis) const override { return axis == Axis::Horizontal; }
@@ -77,7 +80,6 @@ public:
             p.drawLine({r.x, r.bottom()}, {r.right(), r.bottom()}, c.separator, .5f);
         } else {
             p.drawLine({r.x, r.y}, {r.right(), r.y}, c.separator, .5f);
-            const std::string encoding = "UTF-8 · LF";
             const float encodingWidth = p.measureText(encoding, font);
             const float available = r.width - encodingWidth - 56;
             const auto& value = p.measureText(status, font) <= available ? status : compactStatus;
@@ -135,6 +137,11 @@ int main(int argc, char** argv) {
     auto replacement = TextField("Replace with");
     fs::path path;
     std::string saved;
+    std::optional<FileVersion> baseline;
+    uint64_t refreshedVersion = 0;
+    bool dirty = false;
+    uint64_t outlinedVersion = 0;
+    std::string outlinedType;
     Window* dialog = nullptr;
     Window* findWindow = nullptr;
     Window* settingsWindow = nullptr;
@@ -144,7 +151,26 @@ int main(int argc, char** argv) {
     };
     auto error = [&](std::string message) { notice.setText(uiText(message)); };
     refresh = [&] {
-        bool dirty = editor->value() != saved;
+        if (refreshedVersion != editor->revision()) {
+            refreshedVersion = editor->revision();
+            dirty = editor->value() != saved;
+            bool lf = false, crlf = false, cr = false;
+            const auto& value = editor->value();
+            for (size_t i = 0; i < value.size(); ++i) {
+                if (value[i] == '\r') {
+                    if (i + 1 < value.size() && value[i + 1] == '\n') {
+                        crlf = true;
+                        ++i;
+                    } else
+                        cr = true;
+                } else if (value[i] == '\n')
+                    lf = true;
+            }
+            status->encoding = std::string("UTF-8 · ") + ((int(lf) + int(crlf) + int(cr)) > 1 ? "Mixed"
+                                                          : crlf                              ? "CRLF"
+                                                          : cr                                ? "CR"
+                                                                                              : "LF");
+        }
         auto title = path.empty() ? translate("Untitled") : path.filename().string();
         name.setText(title + (dirty ? "  •" : ""));
         tabs->title = title + (dirty ? " •" : "");
@@ -166,45 +192,93 @@ int main(int argc, char** argv) {
                                                             : "Plain Text";
         if (syntaxMode != "auto") type = syntaxMode == "svg" ? "SVG" : "Plain Text";
         format.setTitle(translate(type) + "  ⌄");
-        std::string heading = translate(type);
-        if (type == "SVG") {
-            const auto begin = editor->value().find("<title>");
-            const auto end =
-                begin == std::string::npos ? std::string::npos : editor->value().find("</title>", begin + 7);
-            if (end != std::string::npos && end - begin < 100)
-                heading = editor->value().substr(begin + 7, end - begin - 7);
+        if (outlinedVersion != editor->revision() || outlinedType != type) {
+            outlinedVersion = editor->revision();
+            outlinedType = type;
+            std::string heading = translate(type);
+            if (type == "SVG") {
+                const auto begin = editor->value().find("<title>");
+                const auto end =
+                    begin == std::string::npos ? std::string::npos : editor->value().find("</title>", begin + 7);
+                if (end != std::string::npos && end - begin < 100)
+                    heading = editor->value().substr(begin + 7, end - begin - 7);
+            }
+            outline.setText(heading);
         }
-        outline.setText(heading);
         editor->setHighlight(highlight && type == "SVG");
     };
     editor->setOnChange([&](const std::string&) { refresh(); });
-    auto write = [&](const fs::path& destination) {
-        if (destination.empty()) {
-            error(translate("Please enter a file path."));
-            return false;
-        }
-        std::ofstream out(destination, std::ios::binary | std::ios::trunc);
-        if (!out) {
-            error(message("Could not save: {path}", {{"path", destination.string()}}));
-            return false;
-        }
-        out << editor->value();
-        out.close();
-        if (!out) {
-            error("Writing failed. Check available disk space.");
-            return false;
-        }
-        path = destination;
-        saved = editor->value();
-        error(message("Saved {name}", {{"name", path.filename().string()}}));
-        refresh();
-        return true;
-    };
+    std::function<void(const std::string&)> load;
     Button pendingSave, confirmSave;
     std::function<void(bool, std::function<void()>)> save;
+    std::function<bool(const fs::path&, std::optional<FileVersion>, std::function<void()>)> write;
+    write = [&](const fs::path& destination, std::optional<FileVersion> expected, std::function<void()> then) {
+        auto result = forma::text::saveFile(destination, editor->value(), expected);
+        if (result) {
+            path = destination;
+            baseline = result.version;
+            saved = editor->value();
+            refreshedVersion = 0;
+            error(message("Saved {name}", {{"name", path.filename().string()}}));
+            refresh();
+            return true;
+        }
+        if (result.status == FileStatus::Error) {
+            error(message("Could not save: {path}", {{"path", destination.string()}}) + " — " + result.error);
+            return false;
+        }
+        // Replace the location/old conflict dialog, retaining the waiting action
+        // only in successful save paths. Reload/Cancel never run that action.
+        if (dialog) {
+            dialog->close();
+            dialog = nullptr;
+        }
+        const bool hardLink = result.status == FileStatus::HardLink;
+        auto& w = app.createWindow({.title = translate(hardLink ? "Hard-linked File" : "File Changed"),
+                                    .width = 620,
+                                    .height = 300,
+                                    .minWidth = 620,
+                                    .minHeight = 300});
+        dialog = &w;
+        const auto close = [&, current = &w] {
+            current->close();
+            if (dialog == current) dialog = nullptr;
+        };
+        std::vector<Element> buttons{Button("Cancel").onClick(close), Button("Reload").onClick([&, close, destination] {
+                                         close();
+                                         load(destination.string());
+                                     }),
+                                     Button("Save As…").style(ButtonStyle::Prominent).onClick([&, close, then] {
+                                         close();
+                                         save(true, then);
+                                     })};
+        if (!hardLink) {
+            buttons.push_back(Button("Overwrite").onClick([&, close, destination, expected = result.version, then] {
+                close();
+                if (write(destination, expected, then)) {
+                    if (then) then();
+                    focusEditor();
+                }
+            }));
+        }
+        w.setContent(VStack({Label(hardLink ? "Atomic saving would break this file’s hard links. Save a separate copy."
+                                            : "The file changed outside the editor, or the destination already exists.")
+                                 .weight(FontWeight::Semibold),
+                             Label(destination.string()).verbatim().lineLimit(2),
+                             Label(hardLink ? "Reload discards your edits. Save As keeps the original links intact."
+                                            : "Reload discards your edits. Save As keeps a separate copy. Overwrite "
+                                              "replaces the displayed file version."),
+                             HStack(buttons).spacing(8)})
+                         .spacing(16)
+                         .padding(24));
+        w.onClosed([&, current = &w] {
+            if (dialog == current) dialog = nullptr;
+        });
+        return false;
+    };
     save = [&](bool saveAs, std::function<void()> then) {
         if (!saveAs && !path.empty()) {
-            if (write(path) && then) then();
+            if (write(path, baseline, then) && then) then();
             return;
         }
         if (dialog) {
@@ -221,7 +295,7 @@ int main(int argc, char** argv) {
                                                   : fs::absolute(path).string());
         auto saveError = Label("").font(Font{12, FontWeight::Regular, 16}).color(LabelColor::Destructive).lineLimit(2);
         auto perform = [&, destination, then, saveError]() mutable {
-            if (write(destination.value())) {
+            if (write(destination.value(), {}, then)) {
                 if (dialog) dialog->close();
                 if (then) then();
                 focusEditor();
@@ -282,6 +356,7 @@ int main(int argc, char** argv) {
     auto newDocument = [&] {
         guard([&] {
             path.clear();
+            baseline.reset();
             editor->setValue("");
             saved.clear();
             error("");
@@ -289,31 +364,23 @@ int main(int argc, char** argv) {
             focusEditor();
         });
     };
-    auto load = [&](const std::string& filename) {
-        std::ifstream in(filename, std::ios::binary);
-        if (!in) {
-            error(message("Could not open {path}", {{"path", filename}}));
+    load = [&](const std::string& filename) {
+        std::string value;
+        auto result = forma::text::readFile(filename, value);
+        if (!result) {
+            error(message("Could not open {path}", {{"path", filename}}) + " — " +
+                  (result.status == FileStatus::Conflict ? translate("File changed while reading. Try again.")
+                                                         : result.error));
             return;
         }
-        std::ostringstream buffer;
-        buffer << in.rdbuf();
-        auto value = buffer.str();
         if (value.find('\0') != std::string::npos) {
             error("This is a binary file. Open a UTF-8 text document.");
             return;
         }
-        // Normalize CRLF and old Mac CR so the status bar's LF promise is accurate.
-        std::string normalized;
-        for (size_t i = 0; i < value.size(); ++i) {
-            if (value[i] == '\r') {
-                normalized += '\n';
-                if (i + 1 < value.size() && value[i + 1] == '\n') ++i;
-            } else
-                normalized += value[i];
-        }
         path = filename;
-        editor->setValue(normalized);
-        saved = normalized;
+        baseline = result.version;
+        editor->setValue(std::move(value));
+        saved = editor->value();
         error("");
         refresh();
         focusEditor();

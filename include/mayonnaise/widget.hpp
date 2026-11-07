@@ -67,6 +67,8 @@ public:
     virtual void setTextInput(bool active, Rect caret) = 0;
     /// Hint to the platform input method; defaults to no-op for custom hosts.
     virtual void setSecureTextInput(bool /*secure*/) {}
+    /// Lets the host clear focus and composition when a widget or its ancestor becomes unavailable.
+    virtual void widgetStateChanged(Widget* /*widget*/) {}
     [[nodiscard]] virtual Size windowSize() const = 0;
     /// Height of the window's title bar / toolbar strip. Full-size content insets by this.
     [[nodiscard]] virtual float titleBarHeight() const { return 0; }
@@ -190,6 +192,8 @@ public:
     [[nodiscard]] virtual bool isInteractive() const { return acceptsFocus(); }
     /// Whether a click gives focus (text fields) or only keyboard navigation does (buttons).
     [[nodiscard]] virtual bool focusOnClick() const { return false; }
+    /// Related overlays (a menu and its submenus) share an input scope without exposing the content below.
+    [[nodiscard]] virtual const Widget* focusScopeOwner() const { return this; }
 
     virtual bool onPointerDown(const PointerEvent& /*e*/) { return false; }
     virtual void onPointerMove(const PointerEvent& /*e*/) {}
@@ -200,6 +204,9 @@ public:
     virtual bool onMagnify(const MagnifyEvent& /*e*/) { return false; }
     virtual bool onKeyDown(const KeyEvent& /*e*/) { return false; }
     virtual bool onTextInput(const TextInputEvent& /*e*/) { return false; }
+    virtual bool onTextEditing(const TextEditingEvent& /*e*/) { return false; }
+    [[nodiscard]] virtual bool isComposing() const { return false; }
+    virtual void cancelComposition() {}
     virtual void onFocusChanged(bool /*focused*/) {}
     virtual void onHoverChanged(bool /*hovered*/) {}
     virtual void onPressedChanged(bool /*pressed*/) {}

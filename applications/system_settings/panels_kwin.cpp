@@ -187,14 +187,17 @@ std::vector<Package> auroraeThemes() {
 /// The `[Plugins]` group holds "<id>Enabled" for every effect and script; a missing entry means "default".
 Element pluginRow(const Package& p, const gx::Key& key) {
     auto toggle = Toggle("", key.getBool(p.enabledByDefault)).onChange([key](bool on) { key.set(on); });
-    key.watch([key, toggle, fallback = p.enabledByDefault]() mutable { toggle.setOn(key.getBool(fallback)); });
+    ui::bindControl(
+        key, toggle,
+        [weak = std::weak_ptr<ToggleView>(toggle.node()), fallback = p.enabledByDefault](const gx::Key& k, bool) {
+            if (auto control = weak.lock()) control->setOn(k.getBool(fallback));
+        });
     // The name and description come from installed metadata, already localized by KDE: build the row by hand
     // so they bypass the UI catalogue (a name that happens to match a UI string must not be replaced).
     auto text = VStack({Label(p.name).verbatim().lineLimit(1),
                         Label(p.description).verbatim().font(TextStyle::Subheadline).secondary().lineLimit(2)})
                     .spacing(1);
     auto row = FormRow(Element(HStack({text, Spacer(), toggle}).spacing(12).align(Alignment::Center)));
-    if (!key) toggle.disabled();
     return row;
 }
 
@@ -325,14 +328,19 @@ Element decorationsPanel(Context& ctx) {
         }
         return lib;
     };
-    decorationBackend->write = [](const std::optional<std::string>& value) {
-        if (!value) return;
+    decorationBackend->write = [](const std::optional<std::string>& value, gx::WriteDone) {
+        if (!value) return gx::WriteResult::failure("Select a window decoration to apply");
         if (value->rfind("aurorae:", 0) == 0) {
-            kcfg::write(kKWinRc, "org.kde.kdecoration2", "theme", value->substr(8), kcfg::Reload::KWin);
-            kcfg::write(kKWinRc, "org.kde.kdecoration2", "library", "org.kde.kwin.aurorae", kcfg::Reload::KWin);
-        } else {
-            kcfg::write(kKWinRc, "org.kde.kdecoration2", "library", *value, kcfg::Reload::KWin);
+            return kcfg::writeEntries(kKWinRc,
+                                      {{"org.kde.kdecoration2", "theme", value->substr(8)},
+                                       {"org.kde.kdecoration2", "library", "org.kde.kwin.aurorae"}},
+                                      kcfg::Reload::KWin);
         }
+        return kcfg::write(kKWinRc, "org.kde.kdecoration2", "library", *value, kcfg::Reload::KWin);
+    };
+    decorationBackend->writable = [] {
+        return kcfg::writable(kKWinRc, "org.kde.kdecoration2", "theme") &&
+               kcfg::writable(kKWinRc, "org.kde.kdecoration2", "library");
     };
     decorationBackend->watch = [library, themeName](std::function<void()> fn) {
         kcfg::watch(kKWinRc, "org.kde.kdecoration2", "library", fn);

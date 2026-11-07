@@ -5,11 +5,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <memory>
+#include <set>
 #include <sstream>
 
 #include "ui.hpp"
@@ -49,10 +52,12 @@ namespace {
 using Values = std::map<std::pair<std::string, std::string>, std::string>;
 
 struct File {
+    std::string name;
     std::string path;
     std::vector<std::string> lines;
     Values values;
     std::vector<std::string> groupOrder;
+    std::set<std::pair<std::string, std::string>> locks;
     Values defaults;  ///< system-wide files ($XDG_CONFIG_DIRS)
     bool loaded = false;
     GFileMonitor* monitor = nullptr;
@@ -85,7 +90,8 @@ std::string expandHome(std::string v) {
 std::string headerName(const std::string& line) {
     const std::string t = trim(line);
     if (t.size() < 2 || t.front() != '[' || t.back() != ']') return {};
-    return t.substr(1, t.size() - 2);
+    const std::string h = t.substr(1, t.size() - 2);
+    return h.ends_with("][$i") ? h.substr(0, h.size() - 4) : h;
 }
 
 void parse(const std::vector<std::string>& lines, Values& values, std::vector<std::string>* order) {
@@ -106,6 +112,26 @@ void parse(const std::vector<std::string>& lines, Values& values, std::vector<st
         std::string value = unescape(trim(line.substr(eq + 1)));
         if (expand) value = expandHome(value);
         values[{group, key}] = value;
+    }
+}
+
+void scanLocks(const std::vector<std::string>& lines, File& f) {
+    std::string group = "<default>";
+    for (const auto& raw : lines) {
+        const std::string line = trim(raw);
+        if (line.empty() || line.front() == '#') continue;
+        if (line.front() == '[') {
+            group = headerName(line);
+            if (line == "[$i]")
+                f.locks.insert({"*", "*"});
+            else if (line.ends_with("[$i]"))
+                f.locks.insert({group, "*"});
+        } else {
+            const auto eq = line.find('=');
+            const std::string lhs = trim(line.substr(0, eq));
+            if (eq != std::string::npos && lhs.find("[$i]") != std::string::npos)
+                f.locks.insert({group, entryName(lhs)});
+        }
     }
 }
 
@@ -142,6 +168,11 @@ void load(File& f) {
     f.values.clear();
     f.groupOrder.clear();
     parse(f.lines, f.values, &f.groupOrder);
+    f.locks.clear();
+    scanLocks(f.lines, f);
+    const char* dirs = std::getenv("XDG_CONFIG_DIRS");
+    for (const auto& dir : ui::split(dirs && *dirs ? dirs : "/etc/xdg", ':'))
+        scanLocks(readLines(dir + "/" + f.name), f);
 }
 
 void reloadFromDisk(const std::string& name) {
@@ -175,6 +206,7 @@ File& file(const std::string& name) {
     File& f = *slot;
     if (f.loaded) return f;
     f.loaded = true;
+    f.name = name;
     f.path = configHome() + "/" + name;
     load(f);
     const char* dirs = std::getenv("XDG_CONFIG_DIRS");
@@ -310,56 +342,101 @@ std::optional<std::string> read(const std::string& name, const std::string& grou
     return std::nullopt;
 }
 
-void write(const std::string& name, const std::string& group, const std::string& key, const std::optional<std::string>& value,
-           Reload reload) {
-    if (gx::readOnly()) return;
-    File& f = file(name);
-    auto current = f.values.find({group, key});
-    if (value ? (current != f.values.end() && current->second == *value) : current == f.values.end()) return;
+bool writable(const std::string& name, const std::string& group, const std::string& key) {
+    if (gx::readOnly()) return false;
+    const File& f = file(name);
+    if (f.locks.contains({"*", "*"}) || f.locks.contains({group, key})) return false;
+    for (std::string ancestor = group;;) {
+        if (f.locks.contains({ancestor, "*"})) return false;
+        const auto split = ancestor.rfind("][");
+        if (split == std::string::npos) break;
+        ancestor.resize(split);
+    }
+    std::error_code ec;
+    std::filesystem::path path = f.path;
+    if (std::filesystem::exists(path, ec) &&
+        (!std::filesystem::is_regular_file(path, ec) || g_access(path.c_str(), W_OK) != 0))
+        return false;
+    path = path.parent_path();
+    while (!path.empty() && !std::filesystem::exists(path, ec)) path = path.parent_path();
+    return !path.empty() && std::filesystem::is_directory(path, ec) && g_access(path.c_str(), W_OK | X_OK) == 0;
+}
 
-    // Edit the lines in place so comments, ordering and entries we don't know survive.
-    auto& lines = f.lines;
-    size_t header = lines.size();
-    for (size_t i = 0; i < lines.size(); ++i) {
-        if (headerName(lines[i]) == group) {
-            header = i;
-            break;
+gx::WriteResult write(const std::string& name, const std::string& group, const std::string& key,
+                      const std::optional<std::string>& value, Reload reload) {
+    return writeEntries(name, {{group, key, value}}, reload);
+}
+
+gx::WriteResult writeEntries(const std::string& name, const std::vector<Change>& changes, Reload reload) {
+    if (gx::readOnly()) return gx::WriteResult::readOnly();
+    File& f = file(name);
+    auto lines = f.lines;
+    std::vector<Change> changed;
+    for (const auto& change : changes) {
+        const auto& [group, key, value] = change;
+        if (!writable(name, group, key)) return gx::WriteResult::readOnly(f.path + ": entry is locked or not writable");
+        auto current = f.values.find({group, key});
+        if (value ? (current != f.values.end() && current->second == *value) : current == f.values.end()) continue;
+        changed.push_back(change);
+        // Edit a candidate copy so comments, ordering and entries we don't know survive.
+        size_t header = lines.size();
+        for (size_t i = 0; i < lines.size(); ++i) {
+            if (headerName(lines[i]) == group) {
+                header = i;
+                break;
+            }
+        }
+        const std::string entry = value ? key + "=" + escape(*value) : std::string();
+        if (header == lines.size()) {
+            if (value) {
+                if (!lines.empty() && !trim(lines.back()).empty()) lines.emplace_back();
+                lines.push_back("[" + group + "]");
+                lines.push_back(entry);
+            }
+        } else {
+            size_t end = header + 1;
+            while (end < lines.size() && headerName(lines[end]).empty()) ++end;
+            size_t found = end;
+            for (size_t i = header + 1; i < end; ++i) {
+                if (isEntryLine(lines[i], key)) found = i;
+            }
+            if (found < end) {
+                if (value)
+                    lines[found] = entry;
+                else
+                    lines.erase(lines.begin() + static_cast<long>(found));
+            } else if (value) {
+                size_t at = end;
+                while (at > header + 1 && trim(lines[at - 1]).empty()) --at;
+                lines.insert(lines.begin() + static_cast<long>(at), entry);
+            }
         }
     }
-    const std::string entry = value ? key + "=" + escape(*value) : std::string();
-    if (header == lines.size()) {
-        if (value) {
-            if (!lines.empty() && !trim(lines.back()).empty()) lines.emplace_back();
-            lines.push_back("[" + group + "]");
-            lines.push_back(entry);
-        }
-    } else {
-        size_t end = header + 1;
-        while (end < lines.size() && headerName(lines[end]).empty()) ++end;
-        size_t found = end;
-        for (size_t i = header + 1; i < end; ++i) {
-            if (isEntryLine(lines[i], key)) found = i;
-        }
-        if (found < end) {
-            if (value) lines[found] = entry;
-            else lines.erase(lines.begin() + static_cast<long>(found));
-        } else if (value) {
-            size_t at = end;
-            while (at > header + 1 && trim(lines[at - 1]).empty()) --at;
-            lines.insert(lines.begin() + static_cast<long>(at), entry);
-        }
-    }
+    if (changed.empty()) return {};
     std::string text;
     for (const auto& l : lines) text += l + "\n";
     char* dir = g_path_get_dirname(f.path.c_str());
-    g_mkdir_with_parents(dir, 0700);
+    const int made = g_mkdir_with_parents(dir, 0700);
+    const int savedErrno = errno;
     g_free(dir);
-    if (!g_file_set_contents(f.path.c_str(), text.c_str(), static_cast<gssize>(text.size()), nullptr)) return;
-    if (value) f.values[{group, key}] = *value;
-    else f.values.erase({group, key});
-    notifyChanged(name, group, key);
-    fire(watchId(name, group, key));
+    if (made != 0) return gx::WriteResult::failure(f.path + ": " + std::strerror(savedErrno));
+    GError* error = nullptr;
+    const bool saved = g_file_set_contents(f.path.c_str(), text.c_str(), static_cast<gssize>(text.size()), &error);
+    if (!saved) {
+        const std::string reason = error ? error->message : "Cannot write configuration file";
+        g_clear_error(&error);
+        return gx::WriteResult::failure(f.path + ": " + reason);
+    }
+    f.lines = std::move(lines);
+    f.values.clear();
+    f.groupOrder.clear();
+    parse(f.lines, f.values, &f.groupOrder);
+    for (const auto& change : changed) {
+        notifyChanged(name, change.group, change.key);
+        fire(watchId(name, change.group, change.key));
+    }
     kcfg::reload(reload);
+    return {};
 }
 
 void watch(const std::string& name, const std::string& group, const std::string& key, std::function<void()> fn) {
@@ -391,21 +468,28 @@ gx::Key key(const std::string& name, const std::string& group, const std::string
     b->type = type;
     b->fallback = fallback;
     b->read = [name, group, k] { return read(name, group, k); };
-    b->write = [name, group, k, r, emptyRemoves](const std::optional<std::string>& v) {
-        write(name, group, k, emptyRemoves && v && v->empty() ? std::nullopt : v, r);
+    b->write = [name, group, k, r, emptyRemoves](const std::optional<std::string>& v, gx::WriteDone) {
+        return write(name, group, k, emptyRemoves && v && v->empty() ? std::nullopt : v, r);
     };
+    b->writable = [name, group, k] { return writable(name, group, k); };
     b->watch = [name, group, k](std::function<void()> fn) { watch(name, group, k, std::move(fn)); };
     return gx::Key(b, k);
 }
 
 gx::Key multiKey(const std::string& name, const std::vector<std::string>& groups, const std::string& k, const std::string& type,
                  const std::string& fallback, Reload r) {
+    if (groups.empty()) return {};
     auto b = std::make_shared<gx::KeyBackend>();
     b->type = type;
     b->fallback = fallback;
     b->read = [name, g = groups.front(), k] { return read(name, g, k); };
-    b->write = [name, groups, k, r](const std::optional<std::string>& v) {
-        for (const auto& g : groups) write(name, g, k, v, r);
+    b->write = [name, groups, k, r](const std::optional<std::string>& v, gx::WriteDone) {
+        std::vector<Change> changes;
+        for (const auto& g : groups) changes.push_back({g, k, v});
+        return writeEntries(name, changes, r);
+    };
+    b->writable = [name, groups, k] {
+        return std::all_of(groups.begin(), groups.end(), [&](const auto& g) { return writable(name, g, k); });
     };
     b->watch = [name, g = groups.front(), k](std::function<void()> fn) { watch(name, g, k, std::move(fn)); };
     return gx::Key(b, k);
@@ -416,28 +500,39 @@ gx::Key flagKey(const std::string& name, const std::string& group, const std::st
     auto b = std::make_shared<gx::KeyBackend>();
     b->type = "b";
     b->fallback = fallback ? "true" : "false";
-    b->read = [name, group, k, on, off]() -> std::optional<std::string> {
+    b->read = [name, group, k, on]() -> std::optional<std::string> {
         auto v = read(name, group, k);
         if (!v) return std::nullopt;
         return *v == on ? "true" : "false";
     };
-    b->write = [name, group, k, on, off, r](const std::optional<std::string>& v) {
+    b->write = [name, group, k, on, off, r](const std::optional<std::string>& v, gx::WriteDone) {
         if (!v) return write(name, group, k, std::nullopt, r);
-        write(name, group, k, *v == "true" ? std::optional<std::string>(on) : off, r);
+        return write(name, group, k, *v == "true" ? std::optional<std::string>(on) : off, r);
     };
+    b->writable = [name, group, k] { return writable(name, group, k); };
     b->watch = [name, group, k](std::function<void()> fn) { watch(name, group, k, std::move(fn)); };
     return gx::Key(b, k);
 }
 
 gx::Key appliedKey(const std::string& name, const std::string& group, const std::string& k, const std::string& type,
-                   const std::string& fallback, std::function<void(const std::string&)> apply) {
+                   const std::string& fallback,
+                   std::function<gx::WriteResult(const std::string&, gx::WriteDone)> apply) {
     auto b = std::make_shared<gx::KeyBackend>();
     b->type = type;
     b->fallback = fallback;
     b->read = [name, group, k] { return read(name, group, k); };
-    b->write = [apply = std::move(apply), fallback](const std::optional<std::string>& v) {
-        if (!gx::readOnly()) apply(v.value_or(fallback));
+    b->write = [apply = std::move(apply), fallback, name](const std::optional<std::string>& v, gx::WriteDone done) {
+        if (gx::readOnly()) return gx::WriteResult::readOnly();
+        auto complete = [name, done = std::move(done)](gx::WriteResult result) {
+            // A tool may have changed part of the file even when it failed. Always re-read the truth.
+            reloadFromDisk(name);
+            if (done) done(result);
+        };
+        auto result = apply(v.value_or(fallback), complete);
+        if (!result.pending()) reloadFromDisk(name);
+        return result;
     };
+    b->writable = [name, group, k] { return writable(name, group, k); };
     b->watch = [name, group, k](std::function<void()> fn) { watch(name, group, k, std::move(fn)); };
     return gx::Key(b, k);
 }

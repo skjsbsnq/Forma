@@ -46,6 +46,7 @@ void drawRowIcon(Painter& p, const Browser& b, const Rect& r, const FileEntry& e
 // --- IconGridView ----------------------------------------------------------------------------------
 
 void IconGridView::reload() {
+    resetClickSequence();
     m_index.clear();
     for (size_t i = 0; i < m_browser->entries.size(); ++i) m_index[m_browser->entries[i].path] = static_cast<int>(i);
     m_labels.clear();
@@ -361,6 +362,7 @@ void ListHeaderView::onPointerLeave() {
 }
 
 void ListRowsView::reload() {
+    resetClickSequence();
     // Forget expanded folders that are gone.
     std::erase_if(m_expanded, [](const std::string& p) {
         std::error_code ec;
@@ -558,6 +560,11 @@ void ListRowsView::draw(Painter& p) {
 // --- Columns ---------------------------------------------------------------------------------------
 
 void ColumnListView::setEntries(std::vector<FileEntry> entries, std::string chainChild) {
+    const bool same = m_entries.size() == entries.size() &&
+                      std::equal(m_entries.begin(), m_entries.end(), entries.begin(), [](const auto& a, const auto& b) {
+                          return a.path == b.path && a.modified == b.modified && a.size == b.size;
+                      });
+    if (!same) resetClickSequence();
     m_entries = std::move(entries);
     m_chainChild = std::move(chainChild);
     invalidateLayout();
