@@ -18,6 +18,15 @@ if(MAYONNAISE_BUILD_TESTS)
   mayonnaise_set_sanitizers(forma_polkit_backend_tests)
   add_test(NAME forma_polkit_backend COMMAND forma_polkit_backend_tests)
   set_tests_properties(forma_polkit_backend PROPERTIES ENVIRONMENT "G_DEBUG=fatal-warnings")
+  find_program(SYSTEMD_ANALYZE_EXECUTABLE systemd-analyze)
+  if(SYSTEMD_ANALYZE_EXECUTABLE)
+    add_test(NAME forma_polkit_service
+      COMMAND ${CMAKE_COMMAND}
+        -DAGENT_UNIT=${CMAKE_CURRENT_SOURCE_DIR}/data/forma-polkit-agent.service
+        -DVERIFY_DIR=${CMAKE_CURRENT_BINARY_DIR}/service-test-units
+        -DSYSTEMD_ANALYZE=${SYSTEMD_ANALYZE_EXECUTABLE}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/service_tests.cmake)
+  endif()
 endif()
 if(MAYONNAISE_BUILD_TESTS)
   add_executable(forma_polkit_dialog_tests dialog_tests.cpp dialog.cpp)

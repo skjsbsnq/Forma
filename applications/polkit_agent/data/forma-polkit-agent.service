@@ -1,7 +1,10 @@
 [Unit]
 Description=Forma graphical polkit authentication agent
 PartOf=graphical-session.target
-After=graphical-session.target
+# Plasma imports the display environment before core.target, not pre.target.
+# Do not wait for graphical-session.target: plasma-workspace.target pulls in
+# our alias before that target, so doing so creates an ordering cycle.
+After=graphical-session-pre.target plasma-core.target
 
 [Service]
 Type=simple
